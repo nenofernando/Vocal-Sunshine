@@ -199,6 +199,11 @@ void NFVocalSuiteAudioProcessorEditor::mouseDown(const juce::MouseEvent& e)
 {
     const auto pos = e.position / scale();
     if (bypassRect().contains(pos)) { toggleBool("bypass"); return; }
+    if (stage == nfvs::Voices && waveRect().contains(pos))
+    {
+        if (auto* prm = proc.apvts.getParameter("vspread")) prm->beginChangeGesture();
+        draggingSpread = true; setSpreadFromX(pos.x); return;
+    }
     const auto pr = presetRect();
     if (pr.contains(pos))
     {
@@ -234,8 +239,36 @@ void NFVocalSuiteAudioProcessorEditor::mouseDown(const juce::MouseEvent& e)
     if (switchRow(2).contains(pos)) { toggleBool(sid("b")); return; }
 }
 
+// Dragging in the VOICES display sets how far the left / right copies open (distance of the dots from the centre).
+void NFVocalSuiteAudioProcessorEditor::setSpreadFromX(float x)
+{
+    const auto wp = waveRect();
+    const float half = (wp.getWidth() - 40.0f) * 0.5f - 20.0f;
+    const float v = juce::jlimit(0.0f, 1.0f, std::abs(x - wp.getCentreX()) / (half * 0.92f));
+    if (auto* prm = proc.apvts.getParameter("vspread")) prm->setValueNotifyingHost(prm->convertTo0to1(v * 100.0f));
+}
+
+void NFVocalSuiteAudioProcessorEditor::mouseDrag(const juce::MouseEvent& e)
+{
+    if (draggingSpread) setSpreadFromX(e.position.x / scale());
+}
+
+void NFVocalSuiteAudioProcessorEditor::mouseUp(const juce::MouseEvent&)
+{
+    if (draggingSpread)
+    {
+        draggingSpread = false;
+        if (auto* prm = proc.apvts.getParameter("vspread")) prm->endChangeGesture();
+    }
+}
+
 void NFVocalSuiteAudioProcessorEditor::mouseDoubleClick(const juce::MouseEvent& e)
 {
+    if (stage == nfvs::Voices && waveRect().contains(e.position / scale()))
+    {
+        if (auto* prm = proc.apvts.getParameter("vspread")) { prm->beginChangeGesture(); prm->setValueNotifyingHost(1.0f); prm->endChangeGesture(); }
+        return;
+    }
     if (juce::Rectangle<float>(22.0f, 8.0f, 90.0f, 46.0f).contains(e.position / scale())) setSize(kBaseW, kBaseH);
 }
 
@@ -327,9 +360,10 @@ void NFVocalSuiteAudioProcessorEditor::drawVoices(juce::Graphics& g, juce::Recta
     struct Voice { float pos, gain; };   // pos -1..1
     std::vector<Voice> vs;
     vs.push_back({ 0.0f, 1.0f });
-    if (mode == 0) { vs.push_back({ -0.55f, 0.8f }); vs.push_back({ 0.55f, 0.8f }); }
-    else if (mode == 1) { for (float p : { -0.8f, -0.4f, 0.4f, 0.8f }) vs.push_back({ p, 0.65f }); }
-    else { vs.push_back({ -0.92f, 0.9f }); vs.push_back({ 0.92f, 0.9f }); }
+    const float spr = pv("vspread") / 100.0f * 0.92f;
+    if (mode == 0) { vs.push_back({ -spr, 0.8f }); vs.push_back({ spr, 0.8f }); }
+    else if (mode == 1) { for (float p : { -1.0f, -0.55f, 0.55f, 1.0f }) vs.push_back({ p * spr, 0.65f }); }
+    else { vs.push_back({ -spr, 0.9f }); vs.push_back({ spr, 0.9f }); }
     for (const auto& v : vs)
     {
         const bool centre = v.pos == 0.0f;
@@ -345,6 +379,9 @@ void NFVocalSuiteAudioProcessorEditor::drawVoices(juce::Graphics& g, juce::Recta
     g.drawText("R", juce::Rectangle<float>(r.getRight() - 20.0f, base + 2.0f, 20.0f, 12.0f), juce::Justification::centredRight);
     g.drawText("CENTRE", juce::Rectangle<float>(cx - 30.0f, base + 2.0f, 60.0f, 12.0f), juce::Justification::centred);
     g.setColour(accent); g.drawText("VOICES", juce::Rectangle<float>(wp.getX() + 14.0f, wp.getY() + 6.0f, 120.0f, 12.0f), juce::Justification::centredLeft);
+    g.setColour(kMuted); g.drawText("Drag sideways to set how far the L / R copies open", juce::Rectangle<float>(wp.getX() + 14.0f, wp.getY() + 20.0f, 360.0f, 12.0f), juce::Justification::centredLeft);
+    g.setColour(kText); g.setFont(font(11.0f, true));
+    g.drawText("WIDTH  " + juce::String(juce::roundToInt(pv("vspread"))) + " %", juce::Rectangle<float>(wp.getRight() - 150.0f, wp.getY() + 6.0f, 136.0f, 14.0f), juce::Justification::centredRight);
 }
 
 void NFVocalSuiteAudioProcessorEditor::paint(juce::Graphics& g)

@@ -11,6 +11,8 @@ public:
     void resized() override;
     void mouseDown(const juce::MouseEvent&) override;
     void mouseDoubleClick(const juce::MouseEvent&) override;
+    void mouseDrag(const juce::MouseEvent&) override;
+    void mouseUp(const juce::MouseEvent&) override;
 
     static constexpr int kBaseW = 810, kBaseH = 500;
 
@@ -58,6 +60,8 @@ private:
     juce::Image logo;
     int stage = 0;
     bool bypassed = false;
+    bool draggingSpread = false;
+    void setSpreadFromX(float x);
     float act = 0.0f;
     static constexpr int kFftOrder = 11, kFftSize = 1 << kFftOrder, kSpecCols = 200;
     juce::dsp::FFT fft { kFftOrder };

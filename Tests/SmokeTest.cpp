@@ -163,6 +163,7 @@ int main()
         auto off = flat();
         check(side(off, 0) < 1e-4, "no side signal when the module is at 0");
         check(side(p, 0) > 0.15, "DOUBLE adds side energy");
+        { auto q = p; q.vSpread = 0.0f; check(side(q, 0) < 0.02, "spread 0 % keeps the doubles in the centre"); q.vSpread = 50.0f; const double half = side(q, 0); check(half > 0.03 && half < side(p, 0), "spread 50 % is between centre and full width"); }
         check(side(p, 1) > 0.15, "STACK adds side energy");
         check(side(p, 2) > 0.15, "WIDE adds side energy");
     }

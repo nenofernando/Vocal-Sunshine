@@ -16,6 +16,7 @@ NFVocalSuiteAudioProcessor::NFVocalSuiteAudioProcessor()
     outP = apvts.getRawParameterValue("output"); mixP = apvts.getRawParameterValue("mix");
     for (int v = 0; v < 6; ++v) hvP[v] = apvts.getRawParameterValue("hv" + juce::String(v + 1));
     hkeyP = apvts.getRawParameterValue("hkey");
+    vspreadP = apvts.getRawParameterValue("vspread");
     ctlP[0] = apvts.getRawParameterValue("ctlatk"); ctlP[1] = apvts.getRawParameterValue("ctlrel"); ctlP[2] = apvts.getRawParameterValue("ctlratio");
     lowP = apvts.getRawParameterValue("lowcut"); highP = apvts.getRawParameterValue("highcut"); bypassP = apvts.getRawParameterValue("bypass");
 }
@@ -48,6 +49,7 @@ void NFVocalSuiteAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     }
     prm.outputDb = outP->load(); prm.mix = mixP->load(); for (int v = 0; v < 6; ++v) prm.hv[v] = hvP[v]->load() > 0.5f;
     prm.hkey = juce::roundToInt(hkeyP->load());
+    prm.vSpread = vspreadP->load();
     prm.ctlAtk = ctlP[0]->load(); prm.ctlRel = ctlP[1]->load(); prm.ctlRatio = ctlP[2]->load();
     prm.lowcutHz = lowP->load(); prm.highcutHz = highP->load();
     if (auto* ph = getPlayHead())
@@ -100,6 +102,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout NFVocalSuiteAudioProcessor::
         juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f), 0.0f, juce::AudioParameterFloatAttributes().withLabel("dB")));
     v.push_back(std::make_unique<juce::AudioParameterFloat>(ID{ "mix", 1 }, "Mix",
         juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 100.0f, juce::AudioParameterFloatAttributes().withLabel("%")));
+    v.push_back(std::make_unique<juce::AudioParameterFloat>(ID{ "vspread", 1 }, "Voices Spread", juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 100.0f,
+                                                            juce::AudioParameterFloatAttributes().withLabel("%")));
     static const char* kCt[3][2] = { { "ctlatk", "Compressor Attack" }, { "ctlrel", "Compressor Release" }, { "ctlratio", "Compressor Ratio" } };
     for (auto& c : kCt)
         v.push_back(std::make_unique<juce::AudioParameterFloat>(ID{ c[0], 1 }, c[1], juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 50.0f));

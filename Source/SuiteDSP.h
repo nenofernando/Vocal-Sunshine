@@ -19,6 +19,7 @@ struct Params
     float outputDb = 0.0f, mix = 100.0f;
     bool hv[6] = {};                  // harmony intervals: -8ve, -3rd, +3rd, +5th, +6th, +8ve
     int hkey = 0;                     // harmony key, 0 = C
+    float vSpread = 100.0f;           // VOICES: how far the left / right copies open, 0..100 %
     float ctlAtk = 50.0f, ctlRel = 50.0f, ctlRatio = 50.0f;   // compressor trims, 0..100 (50 = the style's own value)
     float lowcutHz = 20.0f, highcutHz = 20000.0f;   // 20 Hz / 20 kHz = off
     double bpm = 120.0;
@@ -229,6 +230,8 @@ public:
                 hPrev[v] = hAct[v];
                 hRatio[v] = std::pow(2.0f, hSemi[v] / 12.0f);
             }
+            const float vsp = juce::jlimit(0.0f, 1.0f, p.vSpread / 100.0f), vq = juce::MathConstants<float>::pi * 0.25f;
+            const float vgL0 = std::cos((1.0f - vsp) * vq), vgR0 = std::sin((1.0f - vsp) * vq), vgL1 = std::cos((1.0f + vsp) * vq), vgR1 = std::sin((1.0f + vsp) * vq);
             const float vms = (float) fs * 0.001f, vGain = (mVoi == 0 ? 0.6f : mVoi == 1 ? 0.55f : 0.7f) * vo;
             // FINISH
             static const float kDrive[3] = { 4.0f, 8.0f, 12.0f }, kLimRel[3] = { 0.15f, 0.1f, 0.07f };
@@ -383,8 +386,9 @@ public:
                     {
                         if (vLow) wv[ch] = vHp.process(ch, wv[ch]);
                         if (vSoft) wv[ch] = vLp.process(ch, wv[ch]);
-                        x[ch] += vGain * wv[ch];
                     }
+                    x[0] += vGain * (wv[0] * vgL0 + wv[1] * vgL1);   // wv[0] = left copy, wv[1] = right copy, panned out to +-spread
+                    x[1] += vGain * (wv[0] * vgR0 + wv[1] * vgR1);
                 }
                 tapPk[6][i] = std::max(std::abs(x[0]), std::abs(x[1]));
 
