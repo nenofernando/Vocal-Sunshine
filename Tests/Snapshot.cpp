@@ -8,6 +8,7 @@ int main(int argc, char** argv)
     NFVocalSuiteAudioProcessor proc;
     proc.applyPreset(argc > 4 ? std::atoi(argv[4]) : 1);
     proc.apvts.state.setProperty("stage", argc > 2 ? std::atoi(argv[2]) : 0, nullptr);
+    proc.apvts.state.setProperty("knobStyle", argc > 5 ? std::atoi(argv[5]) : 0, nullptr);
     proc.setPlayConfigDetails(2, 2, 48000.0, 480);
     proc.prepareToPlay(48000.0, 480);
 

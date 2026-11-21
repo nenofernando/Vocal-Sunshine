@@ -33,6 +33,61 @@ void NFVocalSuiteAudioProcessorEditor::KnobLook::drawRotarySlider(juce::Graphics
         g.setColour(here ? accent : juce::Colour(major ? 0xff9a9da5 : 0xff62656c));
         g.drawLine(c.x + sx * r1, c.y + cy * r1, c.x + sx * r2, c.y + cy * r2, here ? (big ? 3.0f : 2.2f) : (major ? 1.5f : 1.0f));
     }
+    if (big && style != 0)   // sun / full moon instead of the metal cap
+    {
+        const float pi = juce::MathConstants<float>::pi;
+        const float bodyR = R * (style == 1 ? 0.56f : 0.66f);
+        if (style == 1)
+        {
+            g.setGradientFill(juce::ColourGradient(juce::Colour(0x70ffb02e), c.x, c.y, juce::Colour(0x00ff8a1f), c.x + R * 0.95f, c.y, true));
+            g.fillEllipse(c.x - R * 0.95f, c.y - R * 0.95f, R * 1.9f, R * 1.9f);
+            for (int k = 0; k < 24; ++k)   // rays: long and short, alternating
+            {
+                const float ang = (float) k * 2.0f * pi / 24.0f + 0.07f, half = (k % 2 == 0 ? 0.075f : 0.06f);
+                const float r0 = bodyR * 1.08f, r1 = R * (k % 2 == 0 ? 0.86f : 0.74f);
+                juce::Path ray;
+                ray.startNewSubPath(c.x + std::sin(ang - half) * r0, c.y - std::cos(ang - half) * r0);
+                ray.lineTo(c.x + std::sin(ang) * r1, c.y - std::cos(ang) * r1);
+                ray.lineTo(c.x + std::sin(ang + half) * r0, c.y - std::cos(ang + half) * r0);
+                ray.closeSubPath();
+                g.setGradientFill(juce::ColourGradient(juce::Colour(0xffffe27a), c.x + std::sin(ang) * r0, c.y - std::cos(ang) * r0, juce::Colour(0xffff8a1f), c.x + std::sin(ang) * r1, c.y - std::cos(ang) * r1, false));
+                g.fillPath(ray);
+            }
+            g.setGradientFill(juce::ColourGradient(juce::Colour(0xfffff6c4), c.x - bodyR * 0.35f, c.y - bodyR * 0.4f, juce::Colour(0xffff9a1f), c.x + bodyR * 0.9f, c.y + bodyR * 0.95f, true));
+            g.fillEllipse(c.x - bodyR, c.y - bodyR, bodyR * 2.0f, bodyR * 2.0f);
+            g.setColour(juce::Colour(0x55fff2b0)); g.drawEllipse(c.x - bodyR, c.y - bodyR, bodyR * 2.0f, bodyR * 2.0f, 1.2f);
+        }
+        else
+        {
+            g.setGradientFill(juce::ColourGradient(juce::Colour(0x60cfe0ff), c.x, c.y, juce::Colour(0x00a8c4ff), c.x + R * 0.95f, c.y, true));
+            g.fillEllipse(c.x - R * 0.95f, c.y - R * 0.95f, R * 1.9f, R * 1.9f);
+            g.setGradientFill(juce::ColourGradient(juce::Colour(0xfffaf8ef), c.x - bodyR * 0.5f, c.y - bodyR * 0.6f, juce::Colour(0xffa9a79d), c.x + bodyR * 0.8f, c.y + bodyR * 0.9f, true));
+            g.fillEllipse(c.x - bodyR, c.y - bodyR, bodyR * 2.0f, bodyR * 2.0f);
+            g.saveState();
+            juce::Path disc; disc.addEllipse(c.x - bodyR, c.y - bodyR, bodyR * 2.0f, bodyR * 2.0f); g.reduceClipRegion(disc);
+            static const float maria[3][3] = { { -0.30f, -0.10f, 0.50f }, { 0.28f, 0.32f, 0.42f }, { 0.10f, -0.52f, 0.32f } };
+            for (const auto& m : maria)
+            {
+                const float mx = c.x + m[0] * bodyR, my = c.y + m[1] * bodyR, mr = m[2] * bodyR;
+                g.setGradientFill(juce::ColourGradient(juce::Colour(0x3a6e6c66), mx, my, juce::Colour(0x006e6c66), mx + mr, my, true));
+                g.fillEllipse(mx - mr, my - mr, mr * 2.0f, mr * 2.0f);
+            }
+            static const float craters[9][3] = { { -0.35f, -0.30f, 0.18f }, { 0.30f, -0.45f, 0.12f }, { 0.45f, 0.10f, 0.20f }, { -0.10f, 0.35f, 0.15f }, { -0.55f, 0.25f, 0.10f },
+                                                 { 0.10f, -0.05f, 0.09f }, { 0.25f, 0.58f, 0.08f }, { -0.20f, -0.65f, 0.07f }, { 0.65f, -0.22f, 0.07f } };
+            for (const auto& cr : craters)
+            {
+                const float cx2 = c.x + cr[0] * bodyR, cy2 = c.y + cr[1] * bodyR, r2 = cr[2] * bodyR;
+                g.setColour(juce::Colour(0x4a77756d)); g.fillEllipse(cx2 - r2, cy2 - r2, r2 * 2.0f, r2 * 2.0f);
+                g.setColour(juce::Colour(0x55ffffff)); g.drawEllipse(cx2 - r2 + 0.6f, cy2 - r2 + 0.9f, r2 * 2.0f, r2 * 2.0f, 1.0f);   // lit rim on the lower side
+                g.setColour(juce::Colour(0x33000000)); g.drawEllipse(cx2 - r2, cy2 - r2, r2 * 2.0f, r2 * 2.0f, 0.8f);
+            }
+            g.restoreState();
+        }
+        const float a2 = start + pos * (end - start), sx2 = std::sin(a2), cy2 = -std::cos(a2);
+        g.setColour(style == 1 ? juce::Colour(0xff7a2d00) : juce::Colour(0xff3c4150));
+        g.drawLine(c.x + sx2 * bodyR * 0.30f, c.y + cy2 * bodyR * 0.30f, c.x + sx2 * bodyR * 0.88f, c.y + cy2 * bodyR * 0.88f, 5.0f);
+        return;
+    }
     const float skirtR = R * (big ? 0.80f : 0.78f), capR = R * (big ? 0.64f : 0.62f);
     g.setColour(juce::Colours::black.withAlpha(0.55f)); g.fillEllipse(c.x - skirtR, c.y - skirtR + 3.0f, skirtR * 2.0f, skirtR * 2.0f);
     g.setGradientFill(juce::ColourGradient(juce::Colour(0xff4a4c52), c.x - skirtR, c.y - skirtR, juce::Colour(0xff17181a), c.x + skirtR, c.y + skirtR, false));
@@ -96,6 +151,7 @@ NFVocalSuiteAudioProcessorEditor::NFVocalSuiteAudioProcessorEditor(NFVocalSuiteA
     for (int i = 0; i < kSpecCols; ++i) specIn[i] = specOut[i] = -100.0f;
     selectStage(juce::jlimit(0, nfvs::kStages - 1, (int) p.apvts.state.getProperty("stage", 0)));
 
+    look.style = juce::jlimit(0, 2, (int) p.apvts.state.getProperty("knobStyle", 0));
     setupValueTexts();
 
     constrainer.setFixedAspectRatio((double) kBaseW / (double) kBaseH);
@@ -206,6 +262,12 @@ void NFVocalSuiteAudioProcessorEditor::mouseDown(const juce::MouseEvent& e)
 {
     const auto pos = e.position / scale();
     if (bypassRect().contains(pos)) { toggleBool("bypass"); return; }
+    if (knobStyleRect().contains(pos))   // metal -> sun -> full moon
+    {
+        look.style = (look.style + 1) % 3;
+        proc.apvts.state.setProperty("knobStyle", look.style, nullptr);
+        knob.repaint(); repaint(); return;
+    }
     if (stage == nfvs::Eq && waveRect().contains(pos))
     {
         const int b = eqNodeAt(pos);
@@ -467,6 +529,16 @@ void NFVocalSuiteAudioProcessorEditor::paint(juce::Graphics& g)
         g.drawImage(logo, juce::Rectangle<float>(26.0f, 10.0f, 80.0f, 44.0f), juce::RectanglePlacement::xLeft | juce::RectanglePlacement::yMid);
     g.setColour(juce::Colour(0xfff0ede6)); g.setFont(font(19.0f, true));
     g.drawText("V O C A L   S U I T E", juce::Rectangle<float>(116.0f, 20.0f, 300.0f, 26.0f), juce::Justification::centredLeft);
+
+    {
+        const auto ks = knobStyleRect();
+        recess(ks, 5.0f);
+        static const char* kNames[3] = { "METAL", "SUN", "MOON" };
+        g.setColour(kMuted); g.setFont(font(9.0f, true));
+        g.drawText("KNOB", ks.withTrimmedLeft(10.0f), juce::Justification::centredLeft);
+        g.setColour(look.style == 1 ? juce::Colour(0xffffb02e) : look.style == 2 ? juce::Colour(0xffcfe0ff) : kText);
+        g.drawText(kNames[look.style], ks.withTrimmedRight(10.0f), juce::Justification::centredRight);
+    }
 
     const auto bp = bypassRect();
     recess(bp, 5.0f);

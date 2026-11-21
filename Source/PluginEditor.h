@@ -22,6 +22,7 @@ private:
     {
         void drawRotarySlider(juce::Graphics&, int x, int y, int w, int h, float pos, float start, float end, juce::Slider&) override;
         juce::Colour accent { 0xff4cd07a };
+        int style = 0;   // big knob only: 0 = metal, 1 = sun, 2 = full moon
     };
 
     void timerCallback() override;
@@ -55,6 +56,7 @@ private:
     juce::Rectangle<float> modeRect(int i) const { return { 182.0f + 122.0f * (float) i, 227.0f, 118.0f, 28.0f }; }   // STYLE segments
     juce::Rectangle<float> switchRow(int row) const { return row == 1 ? juce::Rectangle<float>(552.0f, 226.0f, 118.0f, 30.0f) : row == 2 ? juce::Rectangle<float>(674.0f, 226.0f, 118.0f, 30.0f) : juce::Rectangle<float>(); }   // option buttons A / B
     juce::Rectangle<float> harmChip(int col) const { const float cw = (waveRect().getWidth() - 20.0f) / 7.0f; return { waveRect().getX() + 10.0f + cw * (float) col + 5.0f, waveRect().getBottom() - 38.0f, cw - 10.0f, 26.0f }; }
+    juce::Rectangle<float> knobStyleRect() const { return { 452.0f, 16.0f, 78.0f, 21.0f }; }
     juce::Rectangle<float> keyRect() const { return { 552.0f, 292.0f, 240.0f, 36.0f }; }
 
     NFVocalSuiteAudioProcessor& proc;
