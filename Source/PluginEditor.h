@@ -34,6 +34,7 @@ private:
     void updateSpectrum();
     void drawSpectrum(juce::Graphics&, juce::Rectangle<float>, juce::Colour, bool);
     void drawVoices(juce::Graphics&, juce::Rectangle<float>, juce::Colour, bool);
+    void drawHarmony(juce::Graphics&, juce::Rectangle<float>, juce::Colour, bool);
 
     // layout (base 810 x 500)
     juce::Rectangle<float> bypassRect() const { return { 538.0f, 16.0f, 84.0f, 21.0f }; }
@@ -43,14 +44,16 @@ private:
     juce::Rectangle<float> rightPanel() const { return { 566.0f, 210.0f, 214.0f, 200.0f }; }
     juce::Rectangle<float> modeRect(int i) const { return { 44.0f, 238.0f + 38.0f * (float) i, 186.0f, 30.0f }; }
     juce::Rectangle<float> switchRow(int row) const { return { 576.0f, 236.0f + 30.0f * (float) row, 194.0f, 24.0f }; }   // 0 module, 1 A, 2 B
-    juce::Rectangle<float> railDot(int i) const { return { 405.0f + (float) (i - 4) * 76.0f - 36.0f, 428.0f, 72.0f, 50.0f }; }
-    juce::Rectangle<float> prevRect() const { return { 34.0f, 436.0f, 34.0f, 34.0f }; }
-    juce::Rectangle<float> nextRect() const { return { 742.0f, 436.0f, 34.0f, 34.0f }; }
+    juce::Rectangle<float> railDot(int i) const { return { 405.0f + ((float) i - 4.5f) * 68.0f - 33.0f, 428.0f, 66.0f, 50.0f }; }
+    juce::Rectangle<float> prevRect() const { return { 30.0f, 436.0f, 34.0f, 34.0f }; }
+    juce::Rectangle<float> nextRect() const { return { 746.0f, 436.0f, 34.0f, 34.0f }; }
+    juce::Rectangle<float> harmChip(int col) const { const float cw = (waveRect().getWidth() - 20.0f) / 7.0f; return { waveRect().getX() + 10.0f + cw * (float) col + 5.0f, waveRect().getBottom() - 38.0f, cw - 10.0f, 26.0f }; }
+    juce::Rectangle<float> keyRect() const { return { 44.0f, 362.0f, 186.0f, 28.0f }; }
 
     NFVocalSuiteAudioProcessor& proc;
     KnobLook look, smallLook;
-    juce::Slider knob, outKnob, mixKnob, lowKnob, highKnob;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> knobAtt, outAtt, mixAtt, lowAtt, highAtt;
+    juce::Slider knob, outKnob, mixKnob, lowKnob, highKnob, atkKnob, relKnob, ratKnob;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> knobAtt, outAtt, mixAtt, lowAtt, highAtt, atkAtt, relAtt, ratAtt;
     juce::ComponentBoundsConstrainer constrainer;
     juce::Image logo;
     int stage = 0;

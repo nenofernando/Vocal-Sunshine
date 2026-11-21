@@ -14,6 +14,9 @@ NFVocalSuiteAudioProcessor::NFVocalSuiteAudioProcessor()
         bP[s] = apvts.getRawParameterValue(stageId(s, "b"));
     }
     outP = apvts.getRawParameterValue("output"); mixP = apvts.getRawParameterValue("mix");
+    for (int v = 0; v < 6; ++v) hvP[v] = apvts.getRawParameterValue("hv" + juce::String(v + 1));
+    hkeyP = apvts.getRawParameterValue("hkey");
+    ctlP[0] = apvts.getRawParameterValue("ctlatk"); ctlP[1] = apvts.getRawParameterValue("ctlrel"); ctlP[2] = apvts.getRawParameterValue("ctlratio");
     lowP = apvts.getRawParameterValue("lowcut"); highP = apvts.getRawParameterValue("highcut"); bypassP = apvts.getRawParameterValue("bypass");
 }
 
@@ -43,7 +46,10 @@ void NFVocalSuiteAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
         prm.amt[s] = amtP[s]->load(); prm.mode[s] = juce::roundToInt(modeP[s]->load());
         prm.on[s] = onP[s]->load() > 0.5f; prm.a[s] = aP[s]->load() > 0.5f; prm.b[s] = bP[s]->load() > 0.5f;
     }
-    prm.outputDb = outP->load(); prm.mix = mixP->load(); prm.lowcutHz = lowP->load(); prm.highcutHz = highP->load();
+    prm.outputDb = outP->load(); prm.mix = mixP->load(); for (int v = 0; v < 6; ++v) prm.hv[v] = hvP[v]->load() > 0.5f;
+    prm.hkey = juce::roundToInt(hkeyP->load());
+    prm.ctlAtk = ctlP[0]->load(); prm.ctlRel = ctlP[1]->load(); prm.ctlRatio = ctlP[2]->load();
+    prm.lowcutHz = lowP->load(); prm.highcutHz = highP->load();
     if (auto* ph = getPlayHead())
         if (auto pos = ph->getPosition())
             if (auto bpm = pos->getBpm()) prm.bpm = *bpm;
@@ -94,6 +100,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout NFVocalSuiteAudioProcessor::
         juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f), 0.0f, juce::AudioParameterFloatAttributes().withLabel("dB")));
     v.push_back(std::make_unique<juce::AudioParameterFloat>(ID{ "mix", 1 }, "Mix",
         juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 100.0f, juce::AudioParameterFloatAttributes().withLabel("%")));
+    static const char* kCt[3][2] = { { "ctlatk", "Compressor Attack" }, { "ctlrel", "Compressor Release" }, { "ctlratio", "Compressor Ratio" } };
+    for (auto& c : kCt)
+        v.push_back(std::make_unique<juce::AudioParameterFloat>(ID{ c[0], 1 }, c[1], juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 50.0f));
+    static const char* kIv[6] = { "Harmony -8ve", "Harmony -3rd", "Harmony +3rd", "Harmony +5th", "Harmony +6th", "Harmony +8ve" };
+    for (int i = 0; i < 6; ++i)
+        v.push_back(std::make_unique<juce::AudioParameterBool>(ID{ "hv" + juce::String(i + 1), 1 }, kIv[i], i == 2 || i == 3));
+    v.push_back(std::make_unique<juce::AudioParameterChoice>(ID{ "hkey", 1 }, "Harmony Key",
+        juce::StringArray { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }, 0));
     v.push_back(std::make_unique<juce::AudioParameterFloat>(ID{ "lowcut", 1 }, "Low Cut",
         juce::NormalisableRange<float>(20.0f, 500.0f, 1.0f, 0.45f), 20.0f, juce::AudioParameterFloatAttributes().withLabel("Hz")));
     v.push_back(std::make_unique<juce::AudioParameterFloat>(ID{ "highcut", 1 }, "High Cut",

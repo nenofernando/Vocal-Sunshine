@@ -17,6 +17,9 @@ struct Params
     int mode[kStages] = {};           // 0..2
     bool on[kStages] = {}, a[kStages] = {}, b[kStages] = {};
     float outputDb = 0.0f, mix = 100.0f;
+    bool hv[6] = {};                  // harmony intervals: -8ve, -3rd, +3rd, +5th, +6th, +8ve
+    int hkey = 0;                     // harmony key, 0 = C
+    float ctlAtk = 50.0f, ctlRel = 50.0f, ctlRatio = 50.0f;   // compressor trims, 0..100 (50 = the style's own value)
     float lowcutHz = 20.0f, highcutHz = 20000.0f;   // 20 Hz / 20 kHz = off
     double bpm = 120.0;
 };
@@ -88,7 +91,7 @@ inline float toGain(float db) noexcept { return std::pow(10.0f, db * 0.05f); }
 class Chain
 {
 public:
-    static constexpr int kChunk = 512, kHist = 256, kTaps = 10;   // tap 0 = input, tap k = after stage k
+    static constexpr int kChunk = 512, kHist = 256, kTaps = 11;   // tap 0 = input, tap k = after stage k
 
     void prepare(double sampleRate)
     {
@@ -103,7 +106,8 @@ public:
         const double bf[3] = { 320.0, 1000.0, 3400.0 }, bq[3] = { 1.4, 1.8, 1.6 };
         for (int b = 0; b < 3; ++b) band[b].bandPass(fs, bf[b], bq[b]);
         vLen = (int) (fs * 0.08) + 4; vBuf.assign((size_t) vLen, 0.0f);
-        vHp.highPass(fs, 250.0, 0.707); vLp.lowPass(fs, 5000.0, 0.707);
+        vHp.highPass(fs, 250.0, 0.707); vLp.lowPass(fs, 5000.0, 0.707); hLp.lowPass(fs, 5000.0, 0.707);
+        pDecim = std::max(1, (int) std::lround(fs / 12000.0)); hLen = 0.03f * (float) fs;
         exHp.highPass(fs, 4000.0, 0.707);
         thumpLp.lowPass(fs, 140.0, 0.707);
         sendHp.highPass(fs, 220.0, 0.707);
@@ -119,7 +123,7 @@ public:
 
     void reset()
     {
-        for (auto* b : { &lowcut, &lcB, &hcA, &hcB, &vHp, &vLp, &sibHp, &band[0], &band[1], &band[2], &warm, &clarCut, &clarBoost, &pres, &airShelf, &exHp, &thumpLp, &sendHp, &sendLp })
+        for (auto* b : { &hLp, &lowcut, &lcB, &hcA, &hcB, &vHp, &vLp, &sibHp, &band[0], &band[1], &band[2], &warm, &clarCut, &clarBoost, &pres, &airShelf, &exHp, &thumpLp, &sendHp, &sendLp })
             b->reset();
         reverb.reset();
         std::fill(delayBuf[0].begin(), delayBuf[0].end(), 0.0f);
@@ -130,6 +134,9 @@ public:
         for (int b = 0; b < 3; ++b) { envB[b] = 0; avgRel[b] = -18.0f; gBand[b] = 1.0f; }
         dcX[0] = dcX[1] = dcY[0] = dcY[1] = 0;
         std::fill(vBuf.begin(), vBuf.end(), 0.0f); vw = 0; lfo1 = 0; lfo2 = 1.3f;
+        for (int v = 0; v < 6; ++v) { hPhase[v] = 0.0f; hSemi[v] = 0.0f; hPrev[v] = false; }
+        std::fill(std::begin(pBuf), std::end(pBuf), 0.0f); pW = 0; pSince = 0; pDecCount = 0; pDecAcc = 0.0f;
+        leadMidi = 60.0f; leadVoiced = false; unvoicedFrames = 100; leadPeriod = 0.0f; leadOut.store(-1.0f);
         colCount = 0; for (auto& v : colPk) v = 0;
     }
 
@@ -182,7 +189,8 @@ public:
             const float ds = fx * ta[1] * kFixScale[mFix], rs = fx * tb[1] * kFixScale[mFix];
             // CONTROL
             static const float kRatio[3] = { 2.2f, 3.5f, 6.0f }, kAtk[3] = { 0.015f, 0.024f, 0.006f }, kRel[3] = { 0.22f, 0.13f, 0.09f };
-            const float ratio = kRatio[mCtl], atk = tc(kAtk[mCtl]), rel = tc(kRel[mCtl]);
+            const float ratio = juce::jlimit(1.2f, 20.0f, kRatio[mCtl] * std::pow(2.0f, (p.ctlRatio - 50.0f) / 50.0f));
+            const float atk = tc(kAtk[mCtl] * std::pow(4.0f, (p.ctlAtk - 50.0f) / 50.0f)), rel = tc(kRel[mCtl] * std::pow(4.0f, (p.ctlRel - 50.0f) / 50.0f));
             const float thr = -9.0f - 22.0f * ct, knee = 8.0f;
             const float makeup = toGain(ta[3] * 0.6f * -thr * (1.0f - 1.0f / ratio) * std::min(1.0f, ct * 8.0f));
             // COLOR
@@ -197,6 +205,30 @@ public:
             // VOICES
             const bool vLow = ta[Voices] > 0.5f, vSoft = tb[Voices] > 0.5f;
             const float vInc1 = 2.0f * juce::MathConstants<float>::pi * 0.35f / (float) fs, vInc2 = 2.0f * juce::MathConstants<float>::pi * 0.27f / (float) fs;
+            // HARMONY
+            const float hm = e[Harmony];
+            const int mHar = juce::jlimit(0, 2, p.mode[Harmony]);
+            int nAct = 0; bool hAct[6];
+            for (int v = 0; v < 6; ++v) { hAct[v] = hm > 0.002f && p.hv[v]; nAct += hAct[v] ? 1 : 0; }
+            const float hGain = hm * 0.6f / std::sqrt((float) std::max(1, nAct));
+            const bool hSpread = ta[Harmony] > 0.5f, hSoft = tb[Harmony] > 0.5f;
+            float hL[6], hR[6], hRatio[6];
+            if (leadVoiced && leadPeriod > 1.0f)
+            {   // the two crossfaded grains are half a grain apart: make that a whole number of pitch periods so they add in phase
+                int k = 2 * std::max(1, (int) std::lround(0.03f * (float) fs / (2.0f * leadPeriod)));
+                while (k > 2 && (float) k * leadPeriod > 0.045f * (float) fs) k -= 2;
+                hLen += ((float) k * leadPeriod - hLen) * 0.1f;
+            }
+            for (int v = 0; v < 6; ++v)
+            {
+                static const float kPan[6] = { 0.0f, -0.55f, 0.55f, -0.85f, 0.85f, 0.0f };
+                const float ang = ((hSpread ? kPan[v] : 0.0f) + 1.0f) * juce::MathConstants<float>::pi * 0.25f;
+                hL[v] = std::cos(ang); hR[v] = std::sin(ang);
+                const float target = harmonyShift(v, mHar, p.hkey);
+                if (hAct[v] && !hPrev[v]) hSemi[v] = target; else hSemi[v] += (target - hSemi[v]) * 0.3f;
+                hPrev[v] = hAct[v];
+                hRatio[v] = std::pow(2.0f, hSemi[v] / 12.0f);
+            }
             const float vms = (float) fs * 0.001f, vGain = (mVoi == 0 ? 0.6f : mVoi == 1 ? 0.55f : 0.7f) * vo;
             // FINISH
             static const float kDrive[3] = { 4.0f, 8.0f, 12.0f }, kLimRel[3] = { 0.15f, 0.1f, 0.07f };
@@ -330,7 +362,8 @@ public:
                 tapPk[5][i] = std::max(std::abs(x[0]), std::abs(x[1]));
 
                 // ---------------- VOICES: doubled / stacked / wide copies of the centre, low end kept mono, optional softening
-                vBuf[(size_t) vw] = 0.5f * (x[0] + x[1]);
+                const float midIn = 0.5f * (x[0] + x[1]);
+                vBuf[(size_t) vw] = midIn;
                 if (vo > 0.002f)
                 {
                     lfo1 += vInc1; if (lfo1 > 6.2831853f) lfo1 -= 6.2831853f;
@@ -353,8 +386,34 @@ public:
                         x[ch] += vGain * wv[ch];
                     }
                 }
-                if (++vw >= vLen) vw = 0;
                 tapPk[6][i] = std::max(std::abs(x[0]), std::abs(x[1]));
+
+                // ---------------- HARMONY: lead pitch tracker + up to six pitch-shifted copies (two crossfaded grains on the voice delay line)
+                if (hm > 0.002f)
+                {
+                    pitchPush(midIn);
+                    float wl = 0.0f, wr = 0.0f;
+                    for (int v = 0; v < 6; ++v)
+                        if (hAct[v])
+                        {
+                            const float ph = hPhase[v], ph2 = ph >= 0.5f ? ph - 0.5f : ph + 0.5f;
+                            const float g1 = 0.5f - 0.5f * std::cos(2.0f * juce::MathConstants<float>::pi * ph);
+                            auto tap = [&](float d) {
+                                float rp = (float) vw - d; while (rp < 0.0f) rp += (float) vLen;
+                                const int i0 = (int) rp, i1 = (i0 + 1) % vLen; const float fr = rp - (float) i0;
+                                return vBuf[(size_t) i0] * (1.0f - fr) + vBuf[(size_t) i1] * fr;
+                            };
+                            const float y = tap(ph * hLen) * g1 + tap(ph2 * hLen) * (1.0f - g1);
+                            float np = ph + (1.0f - hRatio[v]) / hLen;
+                            np -= std::floor(np);
+                            hPhase[v] = np;
+                            wl += y * hL[v]; wr += y * hR[v];
+                        }
+                    if (hSoft) { wl = hLp.process(0, wl); wr = hLp.process(1, wr); }
+                    x[0] += hGain * wl; x[1] += hGain * wr;
+                }
+                if (++vw >= vLen) vw = 0;
+                tapPk[7][i] = std::max(std::abs(x[0]), std::abs(x[1]));
 
                 proc[0][i] = x[0]; proc[1][i] = x[1];
 
@@ -408,9 +467,9 @@ public:
                 const float gR = 1.0f - 0.45f * d * duckR, gD = 1.0f - 0.85f * d * duckD;
                 float y[2];
                 for (int ch = 0; ch < 2; ++ch) y[ch] = proc[ch][i] + revOut[ch][i] * rvGain * gR;
-                tapPk[7][i] = std::max(std::abs(y[0]), std::abs(y[1]));
-                for (int ch = 0; ch < 2; ++ch) y[ch] += dOut[ch] * dlGain * gD;
                 tapPk[8][i] = std::max(std::abs(y[0]), std::abs(y[1]));
+                for (int ch = 0; ch < 2; ++ch) y[ch] += dOut[ch] * dlGain * gD;
+                tapPk[9][i] = std::max(std::abs(y[0]), std::abs(y[1]));
 
                 // ---------------- FINISH: drive into a soft clipper and a peak limiter at -1 dB
                 if (limActive)
@@ -454,8 +513,8 @@ public:
             // ---- history columns (20 ms): peak of every tap
             for (int i = 0; i < c; ++i)
             {
-                for (int t = 0; t < 9; ++t) colPk[t] = std::max(colPk[t], tapPk[t][i]);
-                colPk[9] = std::max(colPk[9], finPk[i]);
+                for (int t = 0; t < 10; ++t) colPk[t] = std::max(colPk[t], tapPk[t][i]);
+                colPk[10] = std::max(colPk[10], finPk[i]);
                 if (++colCount >= colLen)
                 {
                     const int pos = histPos.load(std::memory_order_relaxed);
@@ -465,6 +524,7 @@ public:
                 }
             }
 
+            leadOut.store(leadVoiced ? leadMidi : -1.0f, std::memory_order_relaxed);
             infoMax[0] = std::max(infoMax[0], -toDb(gNoise));
             infoMax[1] = std::max(infoMax[1], fxRed);
             infoMax[3] = std::max(infoMax[3], grMax);
@@ -482,9 +542,66 @@ public:
         const int end = anPub.load(std::memory_order_acquire);
         for (int k = 0; k < n; ++k) out[k] = anBuf[pt][(size_t) ((end - n + k) & kAnMask)];
     }
+    float leadMidiNow() const { return leadOut.load(std::memory_order_relaxed); }   // detected note of the lead (MIDI), -1 = none
     float infoAt(int s) const { return info[s].load(std::memory_order_relaxed); }
 
 private:
+    // Semitone shift of harmony voice v (0..5 = -8ve, -3rd, +3rd, +5th, +6th, +8ve). Scale modes follow the detected lead note inside the key.
+    float harmonyShift(int v, int mode, int key) const
+    {
+        static const int kFixed[6] = { -12, -4, 4, 7, 9, 12 }, kDeg[6] = { 0, -2, 2, 4, 5, 0 };
+        if (v == 0) return -12.0f;
+        if (v == 5) return 12.0f;
+        if (mode == 2) return (float) kFixed[v];
+        static const int kMaj[7] = { 0, 2, 4, 5, 7, 9, 11 }, kMin[7] = { 0, 2, 3, 5, 7, 8, 10 };
+        const int* sc = mode == 0 ? kMaj : kMin;
+        const int rel = (int) std::lround(leadMidi) - key;
+        const int pc = ((rel % 12) + 12) % 12;
+        int best = 0, bestDist = 99;
+        for (int d = 0; d < 7; ++d) { const int dist = std::min(std::abs(sc[d] - pc), 12 - std::abs(sc[d] - pc)); if (dist < bestDist) { bestDist = dist; best = d; } }
+        const int td = best + kDeg[v];
+        const int oct = (int) std::floor((double) td / 7.0), dd = ((td % 7) + 7) % 7;
+        return (float) (12 * oct + sc[dd] - sc[best]);
+    }
+
+    // Own pitch tracker: decimated (about 12 kHz) YIN-style difference function every 512 samples, range 70..800 Hz.
+    void pitchPush(float v)
+    {
+        pDecAcc += v;
+        if (++pDecCount < pDecim) return;
+        pBuf[pW] = pDecAcc / (float) pDecim; pW = (pW + 1) & 1023; pDecCount = 0; pDecAcc = 0.0f;
+        if (++pSince >= 128) { pSince = 0; detectPitch(); }
+    }
+
+    void detectPitch()
+    {
+        constexpr int W = 512;
+        const double fsd = fs / (double) pDecim;
+        const int minTau = std::max(2, (int) (fsd / 800.0)), maxTau = std::min((int) (fsd / 70.0), 1024 - W - 1);
+        if (maxTau <= minTau + 2) return;
+        float xs[1024];
+        double en = 0.0;
+        for (int k = 0; k < W + maxTau; ++k) { xs[k] = pBuf[(pW - (W + maxTau) + k) & 1023]; if (k >= maxTau) en += (double) xs[k] * xs[k]; }
+        if (std::sqrt(en / W) < 0.004) { if (++unvoicedFrames > 12) leadVoiced = false; return; }
+        float d[1024], dn[1024]; d[0] = 0.0f; float run = 0.0f;
+        for (int tau = 1; tau <= maxTau; ++tau)
+        {
+            float sum = 0.0f;
+            for (int j = 0; j < W; ++j) { const float df = xs[j] - xs[j + tau]; sum += df * df; }
+            d[tau] = sum; run += sum; dn[tau] = run > 0.0f ? sum * (float) tau / run : 1.0f;
+        }
+        int best = -1;
+        for (int tau = minTau; tau <= maxTau - 1; ++tau)
+            if (dn[tau] < 0.15f) { while (tau + 1 < maxTau && dn[tau + 1] < dn[tau]) ++tau; best = tau; break; }
+        if (best < 0) { if (++unvoicedFrames > 12) leadVoiced = false; return; }
+        float tauF = (float) best;
+        if (best > 1 && best < maxTau) { const float a = dn[best - 1], b = dn[best], c = dn[best + 1], den = a - 2.0f * b + c; if (std::abs(den) > 1e-9f) tauF += 0.5f * (a - c) / den; }
+        const float f = (float) (fsd / tauF);
+        const float midi = 69.0f + 12.0f * std::log2(f / 440.0f);
+        leadMidi = (leadVoiced && std::abs(midi - leadMidi) < 3.0f) ? leadMidi + (midi - leadMidi) * 0.5f : midi;
+        leadPeriod = tauF * (float) pDecim; leadVoiced = true; unvoicedFrames = 0;
+    }
+
     void updateFilters(int mTone, float lcF, float hcF, float tn, float taAir, float tbBody, float taBright)
     {
         static const float W[3][4] = { { 1.0f, 0.5f, 0.4f, 0.5f }, { 0.6f, 0.8f, 0.8f, 0.7f }, { 0.25f, 0.9f, 1.0f, 1.0f } };
@@ -516,9 +633,16 @@ private:
     int delayLen = 1, dw = 0, preLen = 1, pw = 0, vLen = 1, vw = 0;
     std::vector<float> vBuf;
     float lfo1 = 0, lfo2 = 1.3f;
+    Biquad hLp;
+    float hPhase[6] = {}, hSemi[6] = {}, hLen = 1440.0f;
+    bool hPrev[6] = {};
+    float pBuf[1024] = {}, pDecAcc = 0.0f, leadMidi = 60.0f, leadPeriod = 0.0f;
+    int pW = 0, pSince = 0, pDecCount = 0, pDecim = 4, unvoicedFrames = 100;
+    bool leadVoiced = false;
+    std::atomic<float> leadOut { -1.0f };
     float dlyLp[2] = { 0, 0 }, delaySmoothed = -1.0f;
     juce::Reverb reverb;
-    float dry[2][kChunk], proc[2][kChunk], send[2][kChunk], revIn[kChunk], revOut[2][kChunk], duckBuf[kChunk], tapPk[9][kChunk], finPk[kChunk];
+    float dry[2][kChunk], proc[2][kChunk], send[2][kChunk], revIn[kChunk], revOut[2][kChunk], duckBuf[kChunk], tapPk[10][kChunk], finPk[kChunk];
     int colLen = 960, colCount = 0;
     float colPk[kTaps] = {};
     std::atomic<float> hist[kTaps][kHist];

@@ -124,23 +124,23 @@ int main()
     }
     std::printf("REVERB: tail present\n");
     {
-        auto p = flat(); p.amt[6] = 100; p.mode[6] = 2; p.a[6] = false; p.b[6] = false;
+        auto p = flat(); p.amt[7] = 100; p.mode[7] = 2; p.a[7] = false; p.b[7] = false;
         auto burst = [&](double t) { return t < 0.1 ? (float) (0.5 * std::sin(tw * 400 * t)) : 0.0f; };
         const auto a = run(flat(), 1.5, burst, 0.5), b = run(p, 1.5, burst, 0.5);
         check(b.rms > a.rms * 3.0 + 1e-6, "tail is audible 0.4 s after the burst");
     }
     std::printf("FINISH: limiter holds the ceiling\n");
     {
-        auto p = flat(); p.amt[8] = 100; p.mode[8] = 2;
+        auto p = flat(); p.amt[9] = 100; p.mode[9] = 2;
         auto hot = [&](double t) { return (float) (0.9 * std::sin(tw * 250 * t) * (0.6 + 0.4 * std::sin(tw * 3 * t))); };
-        const auto b = run(p, 2.0, hot, 0.3, 8), a = run(flat(), 2.0, hot);
+        const auto b = run(p, 2.0, hot, 0.3, 9), a = run(flat(), 2.0, hot);
         check(b.peak < 0.95, "peak stays below 0.95 with +12 dB of drive");
         check(dbOf(b.rms) > dbOf(a.rms) + 2.0, "and the signal is louder than without it");
     }
 
     std::printf("DELAY: echo at the tempo\n");
     {
-        auto p = flat(); p.amt[7] = 100; p.mode[7] = 1;   // 1/4 note at 120 bpm = 0.5 s
+        auto p = flat(); p.amt[8] = 100; p.mode[8] = 1;   // 1/4 note at 120 bpm = 0.5 s
         auto burst = [&](double t) { return t < 0.1 ? (float) (0.5 * std::sin(tw * 400 * t)) : 0.0f; };
         const auto a = run(flat(), 1.2, burst, 0.45), b = run(p, 1.2, burst, 0.45);
         check(b.rms > a.rms * 3.0 + 1e-6, "echo is audible at 0.5 s");
@@ -175,6 +175,34 @@ int main()
         check(dbOf(run(p, 1.0, lo).rms) < dbOf(run(flat(), 1.0, lo).rms) - 20.0, "low cut removes 60 Hz (> 20 dB)");
         check(dbOf(run(p, 1.0, hi).rms) < dbOf(run(flat(), 1.0, hi).rms) - 20.0, "high cut removes 9 kHz (> 20 dB)");
         check(std::abs(dbOf(run(p, 1.0, mid).rms) - dbOf(run(flat(), 1.0, mid).rms)) < 1.5, "900 Hz passes");
+    }
+
+    std::printf("HARMONY: pitch tracker and intervals\n");
+    {
+        auto goertzel = [&](const nfvs::Params& p, double f0, double fProbe, float* leadOut) {
+            nfvs::Chain ch; ch.prepare(kFs);
+            std::vector<float> l(480), r(480); double re = 0, im = 0; long n = 0;
+            for (long blk = 0; blk < 300; ++blk)
+            {
+                for (int i = 0; i < 480; ++i) { const double t = (double) (blk * 480 + i) / kFs; l[(size_t) i] = r[(size_t) i] = (float) (0.3 * (std::sin(tw * f0 * t) + 0.3 * std::sin(tw * 2 * f0 * t) + 0.15 * std::sin(tw * 3 * f0 * t))); }
+                ch.process(l.data(), r.data(), 480, p);
+                if (blk > 100) for (int i = 0; i < 480; ++i) { const double t = (double) (blk * 480 + i) / kFs; re += l[(size_t) i] * std::cos(tw * fProbe * t); im += l[(size_t) i] * std::sin(tw * fProbe * t); ++n; }
+            }
+            if (leadOut) *leadOut = ch.leadMidiNow();
+            return 20.0 * std::log10(std::sqrt(re * re + im * im) / (double) n * 2.0 + 1e-9);
+        };
+        auto hp = flat(); hp.amt[6] = 100; hp.mode[6] = 2; hp.a[6] = false; hp.b[6] = false;
+        float lead = -1.0f;
+        auto dn = hp; dn.hv[0] = true;                         // -8ve: 110 Hz is not in the test signal
+        const double with = goertzel(dn, 220.0, 110.0, &lead), without = goertzel(flat(), 220.0, 110.0, nullptr);
+        check(std::abs(lead - 57.0f) < 0.6f, "pitch tracker reads 220 Hz as A3 (MIDI 57)");
+        check(with > without + 10.0, "-8ve voice adds energy one octave down (> 10 dB at 110 Hz)");
+        auto fifth = hp; fifth.hv[3] = true;                  // +5th, FIXED = +7 semitones = 329.6 Hz
+        check(goertzel(fifth, 220.0, 329.63, nullptr) > goertzel(flat(), 220.0, 329.63, nullptr) + 6.0, "+5th voice (fixed) lands on 329.6 Hz");
+        auto maj = hp; maj.mode[6] = 0; maj.hv[2] = true; maj.hkey = 9;   // A major, lead A3: third above = C#4 (277.2 Hz)
+        check(goertzel(maj, 220.0, 277.18, nullptr) > goertzel(flat(), 220.0, 277.18, nullptr) + 6.0, "key-aware +3rd of A in A major = C#");
+        auto mnr = maj; mnr.mode[6] = 1;                      // A minor: third above = C (261.6 Hz)
+        check(goertzel(mnr, 220.0, 261.63, nullptr) > goertzel(flat(), 220.0, 261.63, nullptr) + 6.0, "in A minor the +3rd is C");
     }
 
     std::printf(bad ? "FAIL (%d problems)\n" : "OK\n", bad);
