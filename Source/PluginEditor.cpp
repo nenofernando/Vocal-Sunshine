@@ -75,6 +75,7 @@ NFVocalSuiteAudioProcessorEditor::NFVocalSuiteAudioProcessorEditor(NFVocalSuiteA
 {
     logo = juce::ImageCache::getFromMemory(NFVocalSuiteBinaryData::_10_logo_nf_audio_tools_png,
                                            NFVocalSuiteBinaryData::_10_logo_nf_audio_tools_pngSize);
+    signature = juce::ImageCache::getFromMemory(NFVocalSuiteBinaryData::Signature_white_png, NFVocalSuiteBinaryData::Signature_white_pngSize);
     auto setup = [this](juce::Slider& s, KnobLook& l, int drag) {
         s.setLookAndFeel(&l);
         s.setSliderStyle(juce::Slider::RotaryVerticalDrag);
@@ -444,6 +445,13 @@ void NFVocalSuiteAudioProcessorEditor::paint(juce::Graphics& g)
         g.drawImage(logo, juce::Rectangle<float>(26.0f, 10.0f, 80.0f, 44.0f), juce::RectanglePlacement::xLeft | juce::RectanglePlacement::yMid);
     g.setColour(kText); g.setFont(font(19.0f, true));
     g.drawText("V O C A L   S U I T E", juce::Rectangle<float>(116.0f, 20.0f, 300.0f, 26.0f), juce::Justification::centredLeft);
+
+    if (signature.isValid())   // owner's signature, white on the dark chassis
+    {
+        g.setOpacity(0.9f);
+        g.drawImage(signature, juce::Rectangle<float>(372.0f, 6.0f, 110.0f, 56.0f), juce::RectanglePlacement::centred);
+        g.setOpacity(1.0f);
+    }
 
     const auto bp = bypassRect();
     g.setColour(juce::Colour(0xff25252a)); g.fillRoundedRectangle(bp, 5.0f);
