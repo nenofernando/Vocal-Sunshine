@@ -151,7 +151,7 @@ NFVocalSuiteAudioProcessorEditor::NFVocalSuiteAudioProcessorEditor(NFVocalSuiteA
     for (int i = 0; i < kSpecCols; ++i) specIn[i] = specOut[i] = -100.0f;
     selectStage(juce::jlimit(0, nfvs::kStages - 1, (int) p.apvts.state.getProperty("stage", 0)));
 
-    look.style = juce::jlimit(0, 2, (int) p.apvts.state.getProperty("knobStyle", 0));
+    look.style = juce::jlimit(0, 2, (int) p.apvts.state.getProperty("knobStyle", 1));
     setupValueTexts();
 
     constrainer.setFixedAspectRatio((double) kBaseW / (double) kBaseH);

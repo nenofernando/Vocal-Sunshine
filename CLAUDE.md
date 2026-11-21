@@ -13,3 +13,4 @@ big amount knob, 3 styles, module on/off, 2 option switches, before/after wavefo
 - HARMONY DSP (own code, no other NF plug-in's code): YIN-style pitch tracker on a ~12 kHz decimated copy; each interval voice = two Hann-crossfaded grains on the shared voice delay line, grain length = an even number of pitch periods so the two grains add in phase; zero latency. MAJOR/MINOR modes pick the interval from the detected lead note inside the chosen key; FIXED uses plain semitones.
 - EQ DSP: low shelf, 2 bells, high shelf, nodes dragged on the spectrum (wheel = Q); styles are one-shot starting curves.
 - PITCH (auto-tune) stage was built and then REMOVED at the owner's request ("por enquanto", 2026-11-21). The code is in git commit 75a6823 (grain shifter + tracker + piano-roll display + tests) if it comes back.
+- Big knob style: KNOB button in the header cycles metal / sun / full moon (`knobStyle` in state). Default = SUN (owner's choice 2026-11-21).
