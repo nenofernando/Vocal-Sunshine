@@ -82,7 +82,7 @@ int main()
     }
     std::printf("CLEAN: noise down, voice kept\n");
     {
-        auto p = flat(); p.amt[0] = 100; p.mode[0] = 2;
+        auto p = flat(); p.amt[nfvs::Clean] = 100; p.mode[nfvs::Clean] = 2;
         auto noise = [&](double) { return (float) (0.002 * (nr.nextFloat() - 0.5)); };   // about -60 dBFS
         const auto off = run(flat(), 2.0, noise), on = run(p, 2.0, noise);
         check(dbOf(on.rms) < dbOf(off.rms) - 6.0, "denoise lowers a -60 dB hiss by > 6 dB");
@@ -91,32 +91,32 @@ int main()
     }
     std::printf("FIX: harsh S reduced\n");
     {
-        auto p = flat(); p.amt[1] = 100; p.mode[1] = 2;
+        auto p = flat(); p.amt[nfvs::Fix] = 100; p.mode[nfvs::Fix] = 2;
         auto s = [&](double t) { const double burst = std::fmod(t, 0.5) < 0.12 ? 1.0 : 0.0; return (float) (0.3 * (0.5 + 0.5 * std::sin(tw * 2.0 * t)) * std::sin(tw * 200 * t) + 0.12 * burst * std::sin(tw * 7500 * t)); };
-        const auto a = run(flat(), 3.0, s), b = run(p, 3.0, s, 0.3, 1);
+        const auto a = run(flat(), 3.0, s), b = run(p, 3.0, s, 0.3, nfvs::Fix);
         check(dbOf(b.rms) < dbOf(a.rms) - 0.3 && b.grMax > 1.0, "de-esser cuts a sibilant burst");
     }
     std::printf("TONE: bright style lifts the highs\n");
     {
-        auto p = flat(); p.amt[2] = 100; p.mode[2] = 2;
+        auto p = flat(); p.amt[nfvs::Tone] = 100; p.mode[nfvs::Tone] = 2;
         auto hi = [&](double t) { return (float) (0.1 * std::sin(tw * 11000 * t)); };
         const auto a = run(flat(), 1.0, hi), b = run(p, 1.0, hi);
         check(dbOf(b.rms) > dbOf(a.rms) + 3.0, "air shelf adds > 3 dB at 11 kHz");
     }
     std::printf("CONTROL: compresses loud, evens level\n");
     {
-        auto p = flat(); p.amt[3] = 100; p.mode[3] = 2; p.a[3] = false; p.b[3] = false;
+        auto p = flat(); p.amt[nfvs::Control] = 100; p.mode[nfvs::Control] = 2; p.a[nfvs::Control] = false; p.b[nfvs::Control] = false;
         auto loud = [&](double t) { return (float) (0.7 * std::sin(tw * 300 * t)); };
-        const auto b = run(p, 2.0, loud, 0.3, 3);
+        const auto b = run(p, 2.0, loud, 0.3, nfvs::Control);
         check(b.grMax > 6.0, "heavy compression shows > 6 dB of reduction");
-        auto p2 = p; p2.b[3] = true; p2.a[3] = true;
+        auto p2 = p; p2.b[nfvs::Control] = true; p2.a[nfvs::Control] = true;
         auto quiet = [&](double t) { return (float) (0.03 * std::sin(tw * 300 * t)); };
         const auto q0 = run(flat(), 8.0, quiet, 6.0), q1 = run(p2, 8.0, quiet, 6.0);
         check(dbOf(q1.rms) > dbOf(q0.rms) + 3.0, "level rider lifts a quiet passage");
     }
     std::printf("COLOR: adds harmonics\n");
     {
-        auto p = flat(); p.amt[4] = 100; p.mode[4] = 0; p.a[4] = false; p.b[4] = false;
+        auto p = flat(); p.amt[nfvs::Color] = 100; p.mode[nfvs::Color] = 0; p.a[nfvs::Color] = false; p.b[nfvs::Color] = false;
         auto sine = [&](double t) { return (float) (0.5 * std::sin(tw * 300 * t)); };
         const auto a = run(flat(), 1.0, sine), b = run(p, 1.0, sine);
         check(std::abs(dbOf(b.rms) - dbOf(a.rms)) > 0.1, "tape saturation changes the signal");
@@ -124,23 +124,23 @@ int main()
     }
     std::printf("REVERB: tail present\n");
     {
-        auto p = flat(); p.amt[7] = 100; p.mode[7] = 2; p.a[7] = false; p.b[7] = false;
+        auto p = flat(); p.amt[nfvs::Reverb] = 100; p.mode[nfvs::Reverb] = 2; p.a[nfvs::Reverb] = false; p.b[nfvs::Reverb] = false;
         auto burst = [&](double t) { return t < 0.1 ? (float) (0.5 * std::sin(tw * 400 * t)) : 0.0f; };
         const auto a = run(flat(), 1.5, burst, 0.5), b = run(p, 1.5, burst, 0.5);
         check(b.rms > a.rms * 3.0 + 1e-6, "tail is audible 0.4 s after the burst");
     }
     std::printf("FINISH: limiter holds the ceiling\n");
     {
-        auto p = flat(); p.amt[9] = 100; p.mode[9] = 2;
+        auto p = flat(); p.amt[nfvs::Finish] = 100; p.mode[nfvs::Finish] = 2;
         auto hot = [&](double t) { return (float) (0.9 * std::sin(tw * 250 * t) * (0.6 + 0.4 * std::sin(tw * 3 * t))); };
-        const auto b = run(p, 2.0, hot, 0.3, 9), a = run(flat(), 2.0, hot);
+        const auto b = run(p, 2.0, hot, 0.3, nfvs::Finish), a = run(flat(), 2.0, hot);
         check(b.peak < 0.95, "peak stays below 0.95 with +12 dB of drive");
         check(dbOf(b.rms) > dbOf(a.rms) + 2.0, "and the signal is louder than without it");
     }
 
     std::printf("DELAY: echo at the tempo\n");
     {
-        auto p = flat(); p.amt[8] = 100; p.mode[8] = 1;   // 1/4 note at 120 bpm = 0.5 s
+        auto p = flat(); p.amt[nfvs::Delay] = 100; p.mode[nfvs::Delay] = 1;   // 1/4 note at 120 bpm = 0.5 s
         auto burst = [&](double t) { return t < 0.1 ? (float) (0.5 * std::sin(tw * 400 * t)) : 0.0f; };
         const auto a = run(flat(), 1.2, burst, 0.45), b = run(p, 1.2, burst, 0.45);
         check(b.rms > a.rms * 3.0 + 1e-6, "echo is audible at 0.5 s");
@@ -148,7 +148,7 @@ int main()
     std::printf("VOICES: opens a mono voice into stereo\n");
     {
         auto side = [&](const nfvs::Params& p, int mode) {
-            auto q = p; q.mode[5] = mode;
+            auto q = p; q.mode[nfvs::Voices] = mode;
             nfvs::Chain ch; ch.prepare(kFs);
             std::vector<float> l(480), r(480); double sd = 0, md = 0;
             for (long blk = 0; blk < 300; ++blk)
@@ -159,7 +159,7 @@ int main()
             }
             return std::sqrt(sd / (md + 1e-12));
         };
-        auto p = flat(); p.amt[5] = 100; p.a[5] = false; p.b[5] = false;
+        auto p = flat(); p.amt[nfvs::Voices] = 100; p.a[nfvs::Voices] = false; p.b[nfvs::Voices] = false;
         auto off = flat();
         check(side(off, 0) < 1e-4, "no side signal when the module is at 0");
         check(side(p, 0) > 0.15, "DOUBLE adds side energy");
@@ -192,7 +192,7 @@ int main()
             if (leadOut) *leadOut = ch.leadMidiNow();
             return 20.0 * std::log10(std::sqrt(re * re + im * im) / (double) n * 2.0 + 1e-9);
         };
-        auto hp = flat(); hp.amt[6] = 100; hp.mode[6] = 2; hp.a[6] = false; hp.b[6] = false;
+        auto hp = flat(); hp.amt[nfvs::Harmony] = 100; hp.mode[nfvs::Harmony] = 2; hp.a[nfvs::Harmony] = false; hp.b[nfvs::Harmony] = false;
         float lead = -1.0f;
         auto dn = hp; dn.hv[0] = true;                         // -8ve: 110 Hz is not in the test signal
         const double with = goertzel(dn, 220.0, 110.0, &lead), without = goertzel(flat(), 220.0, 110.0, nullptr);
@@ -200,10 +200,47 @@ int main()
         check(with > without + 10.0, "-8ve voice adds energy one octave down (> 10 dB at 110 Hz)");
         auto fifth = hp; fifth.hv[3] = true;                  // +5th, FIXED = +7 semitones = 329.6 Hz
         check(goertzel(fifth, 220.0, 329.63, nullptr) > goertzel(flat(), 220.0, 329.63, nullptr) + 6.0, "+5th voice (fixed) lands on 329.6 Hz");
-        auto maj = hp; maj.mode[6] = 0; maj.hv[2] = true; maj.hkey = 9;   // A major, lead A3: third above = C#4 (277.2 Hz)
+        auto maj = hp; maj.mode[nfvs::Harmony] = 0; maj.hv[2] = true; maj.hkey = 9;   // A major, lead A3: third above = C#4 (277.2 Hz)
         check(goertzel(maj, 220.0, 277.18, nullptr) > goertzel(flat(), 220.0, 277.18, nullptr) + 6.0, "key-aware +3rd of A in A major = C#");
-        auto mnr = maj; mnr.mode[6] = 1;                      // A minor: third above = C (261.6 Hz)
+        auto mnr = maj; mnr.mode[nfvs::Harmony] = 1;                      // A minor: third above = C (261.6 Hz)
         check(goertzel(mnr, 220.0, 261.63, nullptr) > goertzel(flat(), 220.0, 261.63, nullptr) + 6.0, "in A minor the +3rd is C");
+    }
+
+    std::printf("PITCH: correction onto the scale\n");
+    {
+        auto goertz = [&](const nfvs::Params& p, double f0, double fProbe) {
+            nfvs::Chain ch; ch.prepare(kFs);
+            std::vector<float> l(480), r(480); double re = 0, im = 0; long n = 0;
+            for (long blk = 0; blk < 400; ++blk)
+            {
+                for (int i = 0; i < 480; ++i) { const double t = (double) (blk * 480 + i) / kFs; l[(size_t) i] = r[(size_t) i] = (float) (0.3 * (std::sin(tw * f0 * t) + 0.3 * std::sin(tw * 2 * f0 * t) + 0.15 * std::sin(tw * 3 * f0 * t))); }
+                ch.process(l.data(), r.data(), 480, p);
+                if (blk > 160) for (int i = 0; i < 480; ++i) { const double t = (double) (blk * 480 + i) / kFs; re += l[(size_t) i] * std::cos(tw * fProbe * t); im += l[(size_t) i] * std::sin(tw * fProbe * t); ++n; }
+            }
+            return 20.0 * std::log10(std::sqrt(re * re + im * im) / (double) n * 2.0 + 1e-9);
+        };
+        const double sharp = 220.0 * std::pow(2.0, 0.35 / 12.0);      // 35 cents above A3
+        auto p = flat(); p.amt[nfvs::Pitch] = 100; p.mode[nfvs::Pitch] = 2; p.a[nfvs::Pitch] = true; p.b[nfvs::Pitch] = false;   // chromatic, hard
+        check(goertz(p, sharp, 220.0) > goertz(flat(), sharp, 220.0) + 12.0, "a note 35 cents sharp is pulled onto 220 Hz");
+        auto half = p; half.amt[nfvs::Pitch] = 0;
+        check(std::abs(goertz(half, sharp, sharp) - goertz(flat(), sharp, sharp)) < 0.5, "amount 0 leaves the note alone");
+        auto maj = p; maj.mode[nfvs::Pitch] = 0; maj.pkey = 0;          // C major: 233.1 Hz (A#3) is not in the scale, nearest are A3 and B3
+        const double ais = 220.0 * std::pow(2.0, 1.0 / 12.0 + 0.2 / 12.0);
+        check(goertz(maj, ais, 246.94) > goertz(flat(), ais, 246.94) + 10.0, "C major pulls A#3 (+20 cents) up to B3");
+    }
+    std::printf("EQ: shelves and bells\n");
+    {
+        auto tone = [&](double f) { return [f, tw](double t) { return (float) (0.2 * std::sin(tw * f * t)); }; };
+        auto p = flat(); p.amt[nfvs::Eq] = 100;
+        auto lowUp = p; lowUp.eqG[0] = 12.0f; lowUp.eqF[0] = 150.0f;
+        check(dbOf(run(lowUp, 1.0, tone(50.0)).rms) > dbOf(run(flat(), 1.0, tone(50.0)).rms) + 8.0, "low shelf +12 dB lifts 50 Hz");
+        auto bellDown = p; bellDown.eqG[2] = -12.0f; bellDown.eqF[2] = 3000.0f; bellDown.eqQ[2] = 1.0f;
+        check(dbOf(run(bellDown, 1.0, tone(3000.0)).rms) < dbOf(run(flat(), 1.0, tone(3000.0)).rms) - 8.0, "bell -12 dB cuts 3 kHz");
+        check(std::abs(dbOf(run(bellDown, 1.0, tone(300.0)).rms) - dbOf(run(flat(), 1.0, tone(300.0)).rms)) < 1.0, "and leaves 300 Hz alone");
+        auto hiUp = p; hiUp.eqG[3] = 10.0f; hiUp.eqF[3] = 6000.0f;
+        check(dbOf(run(hiUp, 1.0, tone(12000.0)).rms) > dbOf(run(flat(), 1.0, tone(12000.0)).rms) + 6.0, "high shelf +10 dB lifts 12 kHz");
+        auto off = lowUp; off.amt[nfvs::Eq] = 0;
+        check(std::abs(dbOf(run(off, 1.0, tone(50.0)).rms) - dbOf(run(flat(), 1.0, tone(50.0)).rms)) < 0.05, "EQ amount 0 is transparent");
     }
 
     std::printf(bad ? "FAIL (%d problems)\n" : "OK\n", bad);
