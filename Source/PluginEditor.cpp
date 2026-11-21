@@ -88,6 +88,14 @@ NFVocalSuiteAudioProcessorEditor::NFVocalSuiteAudioProcessorEditor(NFVocalSuiteA
     setup(knob, look, 240);
     setup(outKnob, smallLook, 200);
     setup(mixKnob, smallLook, 200);
+    setup(lowKnob, smallLook, 200);
+    setup(highKnob, smallLook, 200);
+    lowKnob.textFromValueFunction = [](double v) { return v < 20.5 ? juce::String("Off") : juce::String(juce::roundToInt(v)) + " Hz"; };
+    highKnob.textFromValueFunction = [](double v) { return v > 19900.0 ? juce::String("Off") : (v >= 1000.0 ? juce::String(v / 1000.0, 1) + " kHz" : juce::String(juce::roundToInt(v)) + " Hz"); };
+    lowKnob.setDoubleClickReturnValue(true, 20.0);
+    highKnob.setDoubleClickReturnValue(true, 20000.0);
+    lowAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(proc.apvts, "lowcut", lowKnob);
+    highAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(proc.apvts, "highcut", highKnob);
     outKnob.textFromValueFunction = [](double v) { return (v > 0.04 ? "+" : "") + juce::String(v, 1) + " dB"; };
     mixKnob.textFromValueFunction = [](double v) { return juce::String(juce::roundToInt(v)) + " %"; };
     outKnob.setDoubleClickReturnValue(true, 0.0);
@@ -108,7 +116,7 @@ NFVocalSuiteAudioProcessorEditor::NFVocalSuiteAudioProcessorEditor(NFVocalSuiteA
 
 NFVocalSuiteAudioProcessorEditor::~NFVocalSuiteAudioProcessorEditor()
 {
-    for (auto* s : { &knob, &outKnob, &mixKnob }) s->setLookAndFeel(nullptr);
+    for (auto* s : { &knob, &outKnob, &mixKnob, &lowKnob, &highKnob }) s->setLookAndFeel(nullptr);
 }
 
 void NFVocalSuiteAudioProcessorEditor::selectStage(int s)
@@ -129,8 +137,10 @@ void NFVocalSuiteAudioProcessorEditor::resized()
         sl.setBounds(juce::Rectangle<float>(cx - size * 0.5f, cy - size * 0.5f, size, size).transformedBy(juce::AffineTransform::scale(s)).toNearestInt());
     };
     place(knob, 405.0f, 306.0f, 190.0f);
-    place(outKnob, 622.0f, 372.0f, 44.0f);
-    place(mixKnob, 724.0f, 372.0f, 44.0f);
+    place(lowKnob, 594.0f, 372.0f, 38.0f);
+    place(highKnob, 648.0f, 372.0f, 38.0f);
+    place(outKnob, 702.0f, 372.0f, 38.0f);
+    place(mixKnob, 756.0f, 372.0f, 38.0f);
     proc.apvts.state.setProperty("uiWidth", getWidth(), nullptr);
 }
 
@@ -192,7 +202,6 @@ void NFVocalSuiteAudioProcessorEditor::mouseDown(const juce::MouseEvent& e)
     if (switchRow(0).contains(pos)) { toggleBool(sid("on")); return; }
     if (switchRow(1).contains(pos)) { toggleBool(sid("a")); return; }
     if (switchRow(2).contains(pos)) { toggleBool(sid("b")); return; }
-    if (stage == 5 && switchRow(3).contains(pos)) setChoice("delayDiv", (juce::roundToInt(pv("delayDiv")) + 1) % 4);
 }
 
 void NFVocalSuiteAudioProcessorEditor::mouseDoubleClick(const juce::MouseEvent& e)
@@ -324,20 +333,10 @@ void NFVocalSuiteAudioProcessorEditor::paint(juce::Graphics& g)
             g.drawText(labels[row], r.withTrimmedRight(50.0f), juce::Justification::centredLeft);
             drawSwitch(g, juce::Rectangle<float>(r.getRight() - 40.0f, r.getY() + 3.0f, 38.0f, 18.0f), states[row], row == 0 ? juce::Colour(0xffd9b26a) : accent);
         }
-        if (stage == 5)
-        {
-            static const char* kDiv[] = { "1/8", "1/4", "1/4.", "1/2" };
-            const auto r = switchRow(3);
-            g.setColour(kMuted); g.drawText("DELAY TIME", r.withTrimmedRight(50.0f), juce::Justification::centredLeft);
-            const auto pill = juce::Rectangle<float>(r.getRight() - 46.0f, r.getY() + 3.0f, 44.0f, 18.0f);
-            g.setColour(juce::Colour(0xff0e0e10)); g.fillRoundedRectangle(pill, 4.0f);
-            g.setColour(kLine); g.drawRoundedRectangle(pill.reduced(0.5f), 4.0f, 1.0f);
-            g.setColour(accent); g.setFont(font(10.0f, true));
-            g.drawText(kDiv[juce::jlimit(0, 3, juce::roundToInt(pv("delayDiv")))], pill, juce::Justification::centred);
-        }
         g.setColour(kMuted); g.setFont(font(8.5f));
-        for (auto* s : { &outKnob, &mixKnob })
-            g.drawText(s == &outKnob ? "OUTPUT" : "MIX", juce::Rectangle<float>((float) s->getBounds().getCentreX() / scale() - 31.0f, 398.0f, 62.0f, 12.0f), juce::Justification::centred);
+        const std::pair<juce::Slider*, const char*> kn[] = { { &lowKnob, "LOW CUT" }, { &highKnob, "HIGH CUT" }, { &outKnob, "OUTPUT" }, { &mixKnob, "MIX" } };
+        for (const auto& k : kn)
+            g.drawText(k.second, juce::Rectangle<float>((float) k.first->getBounds().getCentreX() / scale() - 27.0f, 396.0f, 54.0f, 12.0f), juce::Justification::centred);
     }
 
     // ---- centre: stage name, hint
@@ -348,7 +347,7 @@ void NFVocalSuiteAudioProcessorEditor::paint(juce::Graphics& g)
     g.drawText(si.hint, juce::Rectangle<float>(250.0f, 413.0f, 310.0f, 13.0f), juce::Justification::centred);
 
     // ---- stage rail
-    g.setColour(kLine); g.drawLine(railDot(0).getCentreX(), 448.0f, railDot(6).getCentreX(), 448.0f, 2.0f);
+    g.setColour(kLine); g.drawLine(railDot(0).getCentreX(), 448.0f, railDot(nfvs::kStages - 1).getCentreX(), 448.0f, 2.0f);
     for (int i = 0; i < nfvs::kStages; ++i)
     {
         const auto r = railDot(i);

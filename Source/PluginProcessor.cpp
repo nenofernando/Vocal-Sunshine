@@ -14,7 +14,7 @@ NFVocalSuiteAudioProcessor::NFVocalSuiteAudioProcessor()
         bP[s] = apvts.getRawParameterValue(stageId(s, "b"));
     }
     outP = apvts.getRawParameterValue("output"); mixP = apvts.getRawParameterValue("mix");
-    divP = apvts.getRawParameterValue("delayDiv"); bypassP = apvts.getRawParameterValue("bypass");
+    lowP = apvts.getRawParameterValue("lowcut"); highP = apvts.getRawParameterValue("highcut"); bypassP = apvts.getRawParameterValue("bypass");
 }
 
 void NFVocalSuiteAudioProcessor::prepareToPlay(double sr, int maxBlock)
@@ -43,7 +43,7 @@ void NFVocalSuiteAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
         prm.amt[s] = amtP[s]->load(); prm.mode[s] = juce::roundToInt(modeP[s]->load());
         prm.on[s] = onP[s]->load() > 0.5f; prm.a[s] = aP[s]->load() > 0.5f; prm.b[s] = bP[s]->load() > 0.5f;
     }
-    prm.outputDb = outP->load(); prm.mix = mixP->load(); prm.delayDiv = juce::roundToInt(divP->load());
+    prm.outputDb = outP->load(); prm.mix = mixP->load(); prm.lowcutHz = lowP->load(); prm.highcutHz = highP->load();
     if (auto* ph = getPlayHead())
         if (auto pos = ph->getPosition())
             if (auto bpm = pos->getBpm()) prm.bpm = *bpm;
@@ -85,7 +85,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout NFVocalSuiteAudioProcessor::
         v.push_back(std::make_unique<juce::AudioParameterFloat>(ID{ stageId(s, "amt"), 1 }, cap + " Amount",
             juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), si.defAmt, juce::AudioParameterFloatAttributes().withLabel("%")));
         v.push_back(std::make_unique<juce::AudioParameterChoice>(ID{ stageId(s, "mode"), 1 }, cap + " Style",
-            juce::StringArray { si.modes[0], si.modes[1], si.modes[2] }, 1 - (s == 0 || s == 4 || s == 5 ? 1 : 0)));
+            juce::StringArray { si.modes[0], si.modes[1], si.modes[2] }, si.defMode));
         v.push_back(std::make_unique<juce::AudioParameterBool>(ID{ stageId(s, "on"), 1 }, cap + " On", true));
         v.push_back(std::make_unique<juce::AudioParameterBool>(ID{ stageId(s, "a"), 1 }, cap + " " + si.toggleA, si.defA));
         v.push_back(std::make_unique<juce::AudioParameterBool>(ID{ stageId(s, "b"), 1 }, cap + " " + si.toggleB, si.defB));
@@ -94,7 +94,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout NFVocalSuiteAudioProcessor::
         juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f), 0.0f, juce::AudioParameterFloatAttributes().withLabel("dB")));
     v.push_back(std::make_unique<juce::AudioParameterFloat>(ID{ "mix", 1 }, "Mix",
         juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 100.0f, juce::AudioParameterFloatAttributes().withLabel("%")));
-    v.push_back(std::make_unique<juce::AudioParameterChoice>(ID{ "delayDiv", 1 }, "Delay Time", juce::StringArray { "1/8", "1/4", "1/4 dotted", "1/2" }, 1));
+    v.push_back(std::make_unique<juce::AudioParameterFloat>(ID{ "lowcut", 1 }, "Low Cut",
+        juce::NormalisableRange<float>(20.0f, 500.0f, 1.0f, 0.45f), 20.0f, juce::AudioParameterFloatAttributes().withLabel("Hz")));
+    v.push_back(std::make_unique<juce::AudioParameterFloat>(ID{ "highcut", 1 }, "High Cut",
+        juce::NormalisableRange<float>(2000.0f, 20000.0f, 10.0f, 0.5f), 20000.0f, juce::AudioParameterFloatAttributes().withLabel("Hz")));
     v.push_back(std::make_unique<juce::AudioParameterBool>(ID{ "bypass", 1 }, "Bypass", false));
     return { v.begin(), v.end() };
 }

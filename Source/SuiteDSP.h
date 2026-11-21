@@ -17,7 +17,7 @@ struct Params
     int mode[kStages] = {};           // 0..2
     bool on[kStages] = {}, a[kStages] = {}, b[kStages] = {};
     float outputDb = 0.0f, mix = 100.0f;
-    int delayDiv = 1;                 // 0 = 1/8, 1 = 1/4, 2 = 1/4 dotted, 3 = 1/2
+    float lowcutHz = 20.0f, highcutHz = 20000.0f;   // 20 Hz / 20 kHz = off
     double bpm = 120.0;
 };
 
@@ -88,7 +88,7 @@ inline float toGain(float db) noexcept { return std::pow(10.0f, db * 0.05f); }
 class Chain
 {
 public:
-    static constexpr int kChunk = 512, kHist = 256, kTaps = 8;   // tap 0 = input, tap k = after stage k
+    static constexpr int kChunk = 512, kHist = 256, kTaps = 10;   // tap 0 = input, tap k = after stage k
 
     void prepare(double sampleRate)
     {
@@ -102,6 +102,8 @@ public:
         sibHp.highPass(fs, 6000.0, 0.707);
         const double bf[3] = { 320.0, 1000.0, 3400.0 }, bq[3] = { 1.4, 1.8, 1.6 };
         for (int b = 0; b < 3; ++b) band[b].bandPass(fs, bf[b], bq[b]);
+        vLen = (int) (fs * 0.08) + 4; vBuf.assign((size_t) vLen, 0.0f);
+        vHp.highPass(fs, 250.0, 0.707); vLp.lowPass(fs, 5000.0, 0.707);
         exHp.highPass(fs, 4000.0, 0.707);
         thumpLp.lowPass(fs, 140.0, 0.707);
         sendHp.highPass(fs, 220.0, 0.707);
@@ -117,7 +119,7 @@ public:
 
     void reset()
     {
-        for (auto* b : { &lowcut, &sibHp, &band[0], &band[1], &band[2], &warm, &clarCut, &clarBoost, &pres, &airShelf, &exHp, &thumpLp, &sendHp, &sendLp })
+        for (auto* b : { &lowcut, &lcB, &hcA, &hcB, &vHp, &vLp, &sibHp, &band[0], &band[1], &band[2], &warm, &clarCut, &clarBoost, &pres, &airShelf, &exHp, &thumpLp, &sendHp, &sendLp })
             b->reset();
         reverb.reset();
         std::fill(delayBuf[0].begin(), delayBuf[0].end(), 0.0f);
@@ -127,6 +129,7 @@ public:
         delaySmoothed = -1.0f; riderDb = 0; riderLin = 1.0f; rmsEnv = 0; gLim = 1.0f;
         for (int b = 0; b < 3; ++b) { envB[b] = 0; avgRel[b] = -18.0f; gBand[b] = 1.0f; }
         dcX[0] = dcX[1] = dcY[0] = dcY[1] = 0;
+        std::fill(vBuf.begin(), vBuf.end(), 0.0f); vw = 0; lfo1 = 0; lfo2 = 1.3f;
         colCount = 0; for (auto& v : colPk) v = 0;
     }
 
@@ -135,9 +138,9 @@ public:
     {
         const float outGain = juce::Decibels::decibelsToGain(p.outputDb);
         const float mixAmt = juce::jlimit(0.0f, 1.0f, p.mix / 100.0f);
-        static const float kDivMult[4] = { 0.5f, 1.0f, 1.5f, 2.0f };
+        static const float kDivMult[3] = { 0.5f, 1.0f, 1.5f };
         const float beat = (float) (60.0 / std::max(40.0, p.bpm));
-        const float delayTarget = juce::jlimit(0.02f, 3.0f, beat * kDivMult[juce::jlimit(0, 3, p.delayDiv)]) * (float) fs;
+        const float delayTarget = juce::jlimit(0.02f, 3.0f, beat * kDivMult[juce::jlimit(0, 2, p.mode[Delay])]) * (float) fs;
         if (delaySmoothed < 0.0f) delaySmoothed = delayTarget;
 
         auto tc = [&](float sec) { return 1.0f - std::exp(-1.0f / (sec * (float) fs)); };
@@ -164,12 +167,14 @@ public:
             }
             primed = true;
             const int mClean = juce::jlimit(0, 2, p.mode[0]), mFix = juce::jlimit(0, 2, p.mode[1]), mTone = juce::jlimit(0, 2, p.mode[2]),
-                      mCtl = juce::jlimit(0, 2, p.mode[3]), mCol = juce::jlimit(0, 2, p.mode[4]), mSpc = juce::jlimit(0, 2, p.mode[5]),
-                      mFin = juce::jlimit(0, 2, p.mode[6]);
-            const float cl = e[0], fx = e[1], tn = e[2], ct = e[3], co = e[4], sp = e[5], fn = e[6];
+                      mCtl = juce::jlimit(0, 2, p.mode[3]), mCol = juce::jlimit(0, 2, p.mode[4]), mVoi = juce::jlimit(0, 2, p.mode[Voices]),
+                      mSpc = juce::jlimit(0, 2, p.mode[Reverb]), mFin = juce::jlimit(0, 2, p.mode[Finish]);
+            const float cl = e[0], fx = e[1], tn = e[2], ct = e[3], co = e[4], vo = e[Voices], sp = e[Reverb], dl = e[Delay], fn = e[Finish];
 
             // CLEAN
-            const float lcAmt = ta[0] * cl;
+            const float autoLc = 20.0f + ta[0] * cl * (45.0f + 20.0f * (float) mClean + 35.0f * cl);
+            const float lcF = std::max(p.lowcutHz, autoLc), hcF = p.highcutHz;
+            const bool lcOn = lcF > 21.0f, hcOn = hcF < 19500.0f;
             const float dnDepth = tb[0] * cl * (12.0f + 6.0f * (float) mClean);
             const float dnThr = -68.0f + 22.0f * cl + 3.0f * (float) mClean;
             // FIX
@@ -186,15 +191,20 @@ public:
             // SPACE
             static const float kRoom[3] = { 0.5f, 0.25f, 0.85f }, kDamp[3] = { 0.3f, 0.55f, 0.55f }, kPre[3] = { 0.016f, 0.006f, 0.032f };
             const int preSamp = std::min(preLen - 2, (int) (fs * kPre[mSpc]));
-            const float rvGain = 0.5f * sp, dlGain = 0.75f * sp * ta[5], duckAmt = tb[5];
+            const float rvGain = 0.5f * sp, dlGain = 0.75f * dl, duckR = tb[Reverb], duckD = tb[Delay];
+            const bool pingPong = ta[Delay] > 0.5f;
             const float fb = 0.38f;
+            // VOICES
+            const bool vLow = ta[Voices] > 0.5f, vSoft = tb[Voices] > 0.5f;
+            const float vInc1 = 2.0f * juce::MathConstants<float>::pi * 0.35f / (float) fs, vInc2 = 2.0f * juce::MathConstants<float>::pi * 0.27f / (float) fs;
+            const float vms = (float) fs * 0.001f, vGain = (mVoi == 0 ? 0.6f : mVoi == 1 ? 0.55f : 0.7f) * vo;
             // FINISH
             static const float kDrive[3] = { 4.0f, 8.0f, 12.0f }, kLimRel[3] = { 0.15f, 0.1f, 0.07f };
-            const bool limActive = fn * ta[6] > 0.002f;
-            const float preGain = toGain(fn * ta[6] * kDrive[mFin]), clipK = tb[6] * (fn > 0.002f ? 1.0f : 0.0f);
+            const bool limActive = fn * ta[Finish] > 0.002f;
+            const float preGain = toGain(fn * ta[Finish] * kDrive[mFin]), clipK = tb[Finish] * (fn > 0.002f ? 1.0f : 0.0f);
             const float ceil = juce::Decibels::decibelsToGain(-1.0f), aLimRel = tc(kLimRel[mFin]);
 
-            updateFilters(mClean, mTone, cl, tn, ta[0], ta[2], tb[2]);
+            updateFilters(mTone, lcF, hcF, tn, ta[2], tb[2], ta[Reverb]);
 
             float fxRed = 0.0f, grMax = 0.0f;
             for (int i = 0; i < c; ++i)
@@ -205,7 +215,8 @@ public:
                 tapPk[0][i] = peakIn;
 
                 // ---------------- CLEAN
-                if (lcAmt > 0.003f) for (int ch = 0; ch < 2; ++ch) x[ch] = lowcut.process(ch, x[ch]);
+                if (lcOn) for (int ch = 0; ch < 2; ++ch) x[ch] = lcB.process(ch, lowcut.process(ch, x[ch]));
+                if (hcOn) for (int ch = 0; ch < 2; ++ch) x[ch] = hcB.process(ch, hcA.process(ch, x[ch]));
                 const float lvl = std::max(std::abs(x[0]), std::abs(x[1]));
                 envFull += (lvl - envFull) * aEnv;
                 const float fullDb = toDb(envFull);
@@ -315,6 +326,33 @@ public:
                     }
                 tapPk[5][i] = std::max(std::abs(x[0]), std::abs(x[1]));
 
+                // ---------------- VOICES: doubled / stacked / wide copies of the centre, low end kept mono, optional softening
+                vBuf[(size_t) vw] = 0.5f * (x[0] + x[1]);
+                if (vo > 0.002f)
+                {
+                    lfo1 += vInc1; if (lfo1 > 6.2831853f) lfo1 -= 6.2831853f;
+                    lfo2 += vInc2; if (lfo2 > 6.2831853f) lfo2 -= 6.2831853f;
+                    const float s1 = std::sin(lfo1), s2 = std::sin(lfo2);
+                    auto tap = [&](float d) {
+                        float rp = (float) vw - d; while (rp < 0.0f) rp += (float) vLen;
+                        const int i0 = (int) rp, i1 = (i0 + 1) % vLen; const float fr = rp - (float) i0;
+                        return vBuf[(size_t) i0] * (1.0f - fr) + vBuf[(size_t) i1] * fr;
+                    };
+                    float wv[2];
+                    if (mVoi == 0)      { wv[0] = tap(vms * (18.0f + 1.6f * s1)); wv[1] = tap(vms * (26.0f + 1.8f * s2)); }
+                    else if (mVoi == 1) { wv[0] = 0.6f * tap(vms * (16.0f + 1.5f * s1)) + 0.5f * tap(vms * (33.0f + 2.0f * s2));
+                                          wv[1] = 0.6f * tap(vms * (22.0f + 1.7f * s2)) + 0.5f * tap(vms * (41.0f + 2.2f * s1)); }
+                    else                { wv[0] = tap(vms * (7.0f + 0.4f * s1)); wv[1] = -tap(vms * (11.0f + 0.5f * s2)); }
+                    for (int ch = 0; ch < 2; ++ch)
+                    {
+                        if (vLow) wv[ch] = vHp.process(ch, wv[ch]);
+                        if (vSoft) wv[ch] = vLp.process(ch, wv[ch]);
+                        x[ch] += vGain * wv[ch];
+                    }
+                }
+                if (++vw >= vLen) vw = 0;
+                tapPk[6][i] = std::max(std::abs(x[0]), std::abs(x[1]));
+
                 proc[0][i] = x[0]; proc[1][i] = x[1];
 
                 // ---------------- SPACE send (filtered mono) + ducking envelope from the dry input
@@ -355,17 +393,19 @@ public:
                     for (int ch = 0; ch < 2; ++ch) rd[ch] = delayBuf[ch][(size_t) i0] * (1.0f - fr) + delayBuf[ch][(size_t) i1] * fr;
                     dlyLp[0] += (rd[0] - dlyLp[0]) * 0.45f; dlyLp[1] += (rd[1] - dlyLp[1]) * 0.45f;
                     const float mono = 0.5f * (send[0][i] + send[1][i]) * (dlOn ? 1.0f : 0.0f);
-                    delayBuf[0][(size_t) dw] = mono + fb * dlyLp[1];
-                    delayBuf[1][(size_t) dw] = fb * dlyLp[0];
+                    delayBuf[0][(size_t) dw] = mono + fb * (pingPong ? dlyLp[1] : dlyLp[0]);
+                    delayBuf[1][(size_t) dw] = (pingPong ? 0.0f : mono) + fb * (pingPong ? dlyLp[0] : dlyLp[1]);
                     dOut[0] = dlyLp[0]; dOut[1] = dlyLp[1];
                 }
                 if (++dw >= delayLen) dw = 0;
 
                 const float d = juce::jlimit(0.0f, 1.0f, duckBuf[i] * 7.0f);
-                const float gR = 1.0f - 0.45f * d * duckAmt, gD = 1.0f - 0.85f * d * duckAmt;
+                const float gR = 1.0f - 0.45f * d * duckR, gD = 1.0f - 0.85f * d * duckD;
                 float y[2];
-                for (int ch = 0; ch < 2; ++ch) y[ch] = proc[ch][i] + revOut[ch][i] * rvGain * gR + dOut[ch] * dlGain * gD;
-                tapPk[6][i] = std::max(std::abs(y[0]), std::abs(y[1]));
+                for (int ch = 0; ch < 2; ++ch) y[ch] = proc[ch][i] + revOut[ch][i] * rvGain * gR;
+                tapPk[7][i] = std::max(std::abs(y[0]), std::abs(y[1]));
+                for (int ch = 0; ch < 2; ++ch) y[ch] += dOut[ch] * dlGain * gD;
+                tapPk[8][i] = std::max(std::abs(y[0]), std::abs(y[1]));
 
                 // ---------------- FINISH: drive into a soft clipper and a peak limiter at -1 dB
                 if (limActive)
@@ -409,8 +449,8 @@ public:
             // ---- history columns (20 ms): peak of every tap
             for (int i = 0; i < c; ++i)
             {
-                for (int t = 0; t < 7; ++t) colPk[t] = std::max(colPk[t], tapPk[t][i]);
-                colPk[7] = std::max(colPk[7], finPk[i]);
+                for (int t = 0; t < 9; ++t) colPk[t] = std::max(colPk[t], tapPk[t][i]);
+                colPk[9] = std::max(colPk[9], finPk[i]);
                 if (++colCount >= colLen)
                 {
                     const int pos = histPos.load(std::memory_order_relaxed);
@@ -423,7 +463,7 @@ public:
             infoMax[0] = std::max(infoMax[0], -toDb(gNoise));
             infoMax[1] = std::max(infoMax[1], fxRed);
             infoMax[3] = std::max(infoMax[3], grMax);
-            infoMax[6] = std::max(infoMax[6], -toDb(limMin));
+            infoMax[Finish] = std::max(infoMax[Finish], -toDb(limMin));
             done += c;
         }
         for (int s = 0; s < kStages; ++s) info[s].store(infoMax[s], std::memory_order_relaxed);
@@ -434,37 +474,40 @@ public:
     float infoAt(int s) const { return info[s].load(std::memory_order_relaxed); }
 
 private:
-    void updateFilters(int mClean, int mTone, float cl, float tn, float taLow, float taAir, float tbBody)
+    void updateFilters(int mTone, float lcF, float hcF, float tn, float taAir, float tbBody, float taBright)
     {
         static const float W[3][4] = { { 1.0f, 0.5f, 0.4f, 0.5f }, { 0.6f, 0.8f, 0.8f, 0.7f }, { 0.25f, 0.9f, 1.0f, 1.0f } };
-        const std::array<float, 6> key { 20.0f + taLow * cl * (45.0f + 20.0f * (float) mClean + 35.0f * cl),
-                                         6.0f * tn * W[mTone][0] * tbBody, -4.0f * tn * W[mTone][1], 2.4f * tn * W[mTone][1],
-                                         5.5f * tn * W[mTone][2], 8.0f * tn * W[mTone][3] * taAir };
+        const std::array<float, 8> key { lcF, 6.0f * tn * W[mTone][0] * tbBody, -4.0f * tn * W[mTone][1], 2.4f * tn * W[mTone][1],
+                                         5.5f * tn * W[mTone][2], 8.0f * tn * W[mTone][3] * taAir, hcF, 5000.0f + 6000.0f * taBright };
         bool changed = false;
-        for (size_t i = 0; i < key.size(); ++i) if (std::abs(key[i] - lastKey[i]) > 0.0005f) changed = true;
+        for (size_t i = 0; i < key.size(); ++i) if (std::abs(key[i] - lastKey[i]) > (i == 0 || i == 6 || i == 7 ? 0.5f : 0.0005f)) changed = true;
         if (!changed) return;
         lastKey = key;
-        lowcut.highPass(fs, key[0], 0.707);
+        lowcut.highPass(fs, key[0], 0.5412); lcB.highPass(fs, key[0], 1.3066);     // 24 dB/oct
+        hcA.lowPass(fs, key[6], 0.5412);     hcB.lowPass(fs, key[6], 1.3066);
         warm.lowShelf(fs, 170.0, key[1]);
         clarCut.peak(fs, 340.0, 1.0, key[2]);
         clarBoost.peak(fs, 2600.0, 0.8, key[3]);
         pres.peak(fs, 4800.0, 0.9, key[4]);
         airShelf.highShelf(fs, 11000.0, key[5]);
+        sendLp.lowPass(fs, key[7], 0.707);
     }
 
     double fs = 44100.0;
     bool primed = false;
-    Biquad lowcut, sibHp, band[3], warm, clarCut, clarBoost, pres, airShelf, exHp, thumpLp, sendHp, sendLp;
-    std::array<float, 6> lastKey {};
+    Biquad lowcut, lcB, hcA, hcB, vHp, vLp, sibHp, band[3], warm, clarCut, clarBoost, pres, airShelf, exHp, thumpLp, sendHp, sendLp;
+    std::array<float, 8> lastKey {};
     float e[kStages] = {}, ta[kStages] = {}, tb[kStages] = {};
     float envFull = 0, envSib = 0, gNoise = 1, gSib = 1, grDb = 0, duck = 0;
     float envB[3] = {}, avgRel[3] = { -18.0f, -18.0f, -18.0f }, gBand[3] = { 1, 1, 1 };
     float riderDb = 0, riderLin = 1, rmsEnv = 0, gLim = 1, dcX[2] = {}, dcY[2] = {};
     std::vector<float> delayBuf[2], preBuf;
-    int delayLen = 1, dw = 0, preLen = 1, pw = 0;
+    int delayLen = 1, dw = 0, preLen = 1, pw = 0, vLen = 1, vw = 0;
+    std::vector<float> vBuf;
+    float lfo1 = 0, lfo2 = 1.3f;
     float dlyLp[2] = { 0, 0 }, delaySmoothed = -1.0f;
     juce::Reverb reverb;
-    float dry[2][kChunk], proc[2][kChunk], send[2][kChunk], revIn[kChunk], revOut[2][kChunk], duckBuf[kChunk], tapPk[7][kChunk], finPk[kChunk];
+    float dry[2][kChunk], proc[2][kChunk], send[2][kChunk], revIn[kChunk], revOut[2][kChunk], duckBuf[kChunk], tapPk[9][kChunk], finPk[kChunk];
     int colLen = 960, colCount = 0;
     float colPk[kTaps] = {};
     std::atomic<float> hist[kTaps][kHist];

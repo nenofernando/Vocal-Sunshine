@@ -122,20 +122,59 @@ int main()
         check(std::abs(dbOf(b.rms) - dbOf(a.rms)) > 0.1, "tape saturation changes the signal");
         check(b.peak < 1.0 && std::isfinite(b.rms), "stays finite and under full scale");
     }
-    std::printf("SPACE: reverb tail present\n");
+    std::printf("REVERB: tail present\n");
     {
-        auto p = flat(); p.amt[5] = 100; p.mode[5] = 2; p.a[5] = false; p.b[5] = false;
+        auto p = flat(); p.amt[6] = 100; p.mode[6] = 2; p.a[6] = false; p.b[6] = false;
         auto burst = [&](double t) { return t < 0.1 ? (float) (0.5 * std::sin(tw * 400 * t)) : 0.0f; };
         const auto a = run(flat(), 1.5, burst, 0.5), b = run(p, 1.5, burst, 0.5);
         check(b.rms > a.rms * 3.0 + 1e-6, "tail is audible 0.4 s after the burst");
     }
     std::printf("FINISH: limiter holds the ceiling\n");
     {
-        auto p = flat(); p.amt[6] = 100; p.mode[6] = 2;
+        auto p = flat(); p.amt[8] = 100; p.mode[8] = 2;
         auto hot = [&](double t) { return (float) (0.9 * std::sin(tw * 250 * t) * (0.6 + 0.4 * std::sin(tw * 3 * t))); };
-        const auto b = run(p, 2.0, hot, 0.3, 6), a = run(flat(), 2.0, hot);
+        const auto b = run(p, 2.0, hot, 0.3, 8), a = run(flat(), 2.0, hot);
         check(b.peak < 0.95, "peak stays below 0.95 with +12 dB of drive");
         check(dbOf(b.rms) > dbOf(a.rms) + 2.0, "and the signal is louder than without it");
+    }
+
+    std::printf("DELAY: echo at the tempo\n");
+    {
+        auto p = flat(); p.amt[7] = 100; p.mode[7] = 1;   // 1/4 note at 120 bpm = 0.5 s
+        auto burst = [&](double t) { return t < 0.1 ? (float) (0.5 * std::sin(tw * 400 * t)) : 0.0f; };
+        const auto a = run(flat(), 1.2, burst, 0.45), b = run(p, 1.2, burst, 0.45);
+        check(b.rms > a.rms * 3.0 + 1e-6, "echo is audible at 0.5 s");
+    }
+    std::printf("VOICES: opens a mono voice into stereo\n");
+    {
+        auto side = [&](const nfvs::Params& p, int mode) {
+            auto q = p; q.mode[5] = mode;
+            nfvs::Chain ch; ch.prepare(kFs);
+            std::vector<float> l(480), r(480); double sd = 0, md = 0;
+            for (long blk = 0; blk < 300; ++blk)
+            {
+                for (int i = 0; i < 480; ++i) l[(size_t) i] = r[(size_t) i] = (float) (0.3 * std::sin(tw * 500 * (double) (blk * 480 + i) / kFs) * (0.6 + 0.4 * std::sin(tw * 3 * (double) (blk * 480 + i) / kFs)));
+                ch.process(l.data(), r.data(), 480, q);
+                if (blk > 60) for (int i = 0; i < 480; ++i) { const double s = 0.5 * (l[(size_t) i] - r[(size_t) i]), m = 0.5 * (l[(size_t) i] + r[(size_t) i]); sd += s * s; md += m * m; }
+            }
+            return std::sqrt(sd / (md + 1e-12));
+        };
+        auto p = flat(); p.amt[5] = 100; p.a[5] = false; p.b[5] = false;
+        auto off = flat();
+        check(side(off, 0) < 1e-4, "no side signal when the module is at 0");
+        check(side(p, 0) > 0.15, "DOUBLE adds side energy");
+        check(side(p, 1) > 0.15, "STACK adds side energy");
+        check(side(p, 2) > 0.15, "WIDE adds side energy");
+    }
+    std::printf("LOW CUT / HIGH CUT\n");
+    {
+        auto p = flat(); p.lowcutHz = 300.0f; p.highcutHz = 2000.0f;
+        auto lo = [&](double t) { return (float) (0.3 * std::sin(tw * 60 * t)); };
+        auto hi = [&](double t) { return (float) (0.3 * std::sin(tw * 9000 * t)); };
+        auto mid = [&](double t) { return (float) (0.3 * std::sin(tw * 900 * t)); };
+        check(dbOf(run(p, 1.0, lo).rms) < dbOf(run(flat(), 1.0, lo).rms) - 20.0, "low cut removes 60 Hz (> 20 dB)");
+        check(dbOf(run(p, 1.0, hi).rms) < dbOf(run(flat(), 1.0, hi).rms) - 20.0, "high cut removes 9 kHz (> 20 dB)");
+        check(std::abs(dbOf(run(p, 1.0, mid).rms) - dbOf(run(flat(), 1.0, mid).rms)) < 1.5, "900 Hz passes");
     }
 
     std::printf(bad ? "FAIL (%d problems)\n" : "OK\n", bad);

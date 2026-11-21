@@ -39,15 +39,15 @@ private:
     juce::Rectangle<float> leftPanel() const { return { 30.0f, 210.0f, 214.0f, 200.0f }; }
     juce::Rectangle<float> rightPanel() const { return { 566.0f, 210.0f, 214.0f, 200.0f }; }
     juce::Rectangle<float> modeRect(int i) const { return { 44.0f, 238.0f + 38.0f * (float) i, 186.0f, 30.0f }; }
-    juce::Rectangle<float> switchRow(int row) const { return { 576.0f, 236.0f + 30.0f * (float) row, 194.0f, 24.0f }; }   // 0 module, 1 A, 2 B, 3 delay time
-    juce::Rectangle<float> railDot(int i) const { return { 405.0f + (float) (i - 3) * 96.0f - 40.0f, 428.0f, 80.0f, 50.0f }; }
-    juce::Rectangle<float> prevRect() const { return { 44.0f, 436.0f, 44.0f, 34.0f }; }
-    juce::Rectangle<float> nextRect() const { return { 722.0f, 436.0f, 44.0f, 34.0f }; }
+    juce::Rectangle<float> switchRow(int row) const { return { 576.0f, 236.0f + 30.0f * (float) row, 194.0f, 24.0f }; }   // 0 module, 1 A, 2 B
+    juce::Rectangle<float> railDot(int i) const { return { 405.0f + (float) (i - 4) * 76.0f - 36.0f, 428.0f, 72.0f, 50.0f }; }
+    juce::Rectangle<float> prevRect() const { return { 34.0f, 436.0f, 34.0f, 34.0f }; }
+    juce::Rectangle<float> nextRect() const { return { 742.0f, 436.0f, 34.0f, 34.0f }; }
 
     NFVocalSuiteAudioProcessor& proc;
     KnobLook look, smallLook;
-    juce::Slider knob, outKnob, mixKnob;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> knobAtt, outAtt, mixAtt;
+    juce::Slider knob, outKnob, mixKnob, lowKnob, highKnob;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> knobAtt, outAtt, mixAtt, lowAtt, highAtt;
     juce::ComponentBoundsConstrainer constrainer;
     juce::Image logo;
     int stage = 0;
