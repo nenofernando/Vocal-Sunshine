@@ -198,6 +198,8 @@ int main()
         const double with = goertzel(dn, 220.0, 110.0, &lead), without = goertzel(flat(), 220.0, 110.0, nullptr);
         check(std::abs(lead - 57.0f) < 0.6f, "pitch tracker reads 220 Hz as A3 (MIDI 57)");
         check(with > without + 10.0, "-8ve voice adds energy one octave down (> 10 dB at 110 Hz)");
+        { auto lv = hp; lv.hv[3] = true; const double voice = goertzel(lv, 220.0, 329.63, nullptr), lead = goertzel(lv, 220.0, 220.0, nullptr);
+          check(voice > lead - 3.0, "at 100 % the harmony voice is within 3 dB of the lead"); }
         auto fifth = hp; fifth.hv[3] = true;                  // +5th, FIXED = +7 semitones = 329.6 Hz
         check(goertzel(fifth, 220.0, 329.63, nullptr) > goertzel(flat(), 220.0, 329.63, nullptr) + 6.0, "+5th voice (fixed) lands on 329.6 Hz");
         auto maj = hp; maj.mode[nfvs::Harmony] = 0; maj.hv[2] = true; maj.hkey = 9;   // A major, lead A3: third above = C#4 (277.2 Hz)

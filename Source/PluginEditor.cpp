@@ -60,10 +60,10 @@ void NFVocalSuiteAudioProcessorEditor::KnobLook::drawRotarySlider(juce::Graphics
     g.setGradientFill(juce::ColourGradient(juce::Colour(big ? 0xff34343a : 0xff3a3a40), c.x - capR, c.y - capR, juce::Colour(0xff0e0e10), c.x + capR, c.y + capR, false));
     g.fillEllipse(c.x - capR, c.y - capR, capR * 2.0f, capR * 2.0f);
     g.setColour(juce::Colour(big ? 0x33ffffff : 0xff4a4a50)); g.drawEllipse(c.x - capR, c.y - capR, capR * 2.0f, capR * 2.0f, 1.0f);
-    if (big)
+    if (big)   // smooth cap, no machined rings: a soft light from the top-left and a darker lower edge
     {
-        g.setColour(juce::Colour(0x14ffffff));
-        for (float r = capR * 0.2f; r < capR; r += capR * 0.1f) g.drawEllipse(c.x - r, c.y - r, r * 2.0f, r * 2.0f, 0.6f);
+        g.setGradientFill(juce::ColourGradient(juce::Colour(0x30ffffff), c.x - capR * 0.45f, c.y - capR * 0.55f, juce::Colour(0x00ffffff), c.x + capR * 0.2f, c.y + capR * 0.3f, true));
+        g.fillEllipse(c.x - capR, c.y - capR, capR * 2.0f, capR * 2.0f);
     }
     const float sx = std::sin(a), cy = -std::cos(a);
     g.setColour(big ? accent : juce::Colour(0xffd9dce2));

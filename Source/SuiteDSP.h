@@ -262,7 +262,7 @@ public:
             const int mHar = juce::jlimit(0, 2, p.mode[Harmony]);
             int nAct = 0; bool hAct[6];
             for (int v = 0; v < 6; ++v) { hAct[v] = hm > 0.002f && p.hv[v]; nAct += hAct[v] ? 1 : 0; }
-            const float hGain = hm * 0.6f / std::sqrt((float) std::max(1, nAct));
+            const float hGain = hm * 1.4f / std::sqrt((float) std::max(1, nAct));   // at 100 % each voice is about as loud as the lead
             const bool hSpread = ta[Harmony] > 0.5f, hSoft = tb[Harmony] > 0.5f;
             float hL[6], hR[6], hRatio[6];
             if (trkH.voiced && trkH.period > 1.0f)
