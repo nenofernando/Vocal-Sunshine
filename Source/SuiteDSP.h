@@ -229,6 +229,7 @@ public:
                 }
                 else gNoise = 1.0f;
                 tapPk[1][i] = std::max(std::abs(x[0]), std::abs(x[1]));
+                anBuf[0][(size_t) ((anPos + i) & kAnMask)] = 0.5f * (x[0] + x[1]);   // analyzer point 0: before FIX
 
                 // ---------------- FIX: de-esser, then three self-calibrating resonance cuts
                 const float hs[2] = { sibHp.process(0, x[0]), sibHp.process(1, x[1]) };
@@ -266,6 +267,7 @@ public:
                 }
                 else for (int b = 0; b < 3; ++b) gBand[b] = 1.0f;
                 tapPk[2][i] = std::max(std::abs(x[0]), std::abs(x[1]));
+                anBuf[1][(size_t) ((anPos + i) & kAnMask)] = 0.5f * (x[0] + x[1]);   // point 1: after FIX / before TONE
 
                 // ---------------- TONE
                 if (tn > 0.002f)
@@ -278,6 +280,7 @@ public:
                         x[ch] = airShelf.process(ch, y);
                     }
                 tapPk[3][i] = std::max(std::abs(x[0]), std::abs(x[1]));
+                anBuf[2][(size_t) ((anPos + i) & kAnMask)] = 0.5f * (x[0] + x[1]);   // point 2: after TONE
 
                 // ---------------- CONTROL: level rider (slow) then linked compressor
                 if (ct > 0.002f)
@@ -366,6 +369,8 @@ public:
                 duck += (peakIn - duck) * (peakIn > duck ? duckAtk : duckRel);
                 duckBuf[i] = duck;
             }
+
+            anPos = (anPos + c) & kAnMask; anPub.store(anPos, std::memory_order_release);
 
             // reverb on the send
             if (sp > 0.002f)
@@ -471,6 +476,12 @@ public:
 
     float histAt(int tap, int idx) const { return hist[tap][(size_t) idx].load(std::memory_order_relaxed); }
     int histWritePos() const { return histPos.load(std::memory_order_acquire); }
+    // last n samples (mono) at analyzer point pt: 0 = before FIX, 1 = after FIX, 2 = after TONE (read by the editor for its spectrum)
+    void copyAnalyzer(int pt, float* out, int n) const
+    {
+        const int end = anPub.load(std::memory_order_acquire);
+        for (int k = 0; k < n; ++k) out[k] = anBuf[pt][(size_t) ((end - n + k) & kAnMask)];
+    }
     float infoAt(int s) const { return info[s].load(std::memory_order_relaxed); }
 
 private:
@@ -512,6 +523,10 @@ private:
     float colPk[kTaps] = {};
     std::atomic<float> hist[kTaps][kHist];
     std::atomic<int> histPos { 0 };
+    static constexpr int kAnMask = 4095;
+    float anBuf[3][kAnMask + 1] = {};
+    int anPos = 0;
+    std::atomic<int> anPub { 0 };
     std::atomic<float> info[kStages];
 };
 } // namespace nfvs

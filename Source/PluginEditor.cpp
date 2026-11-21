@@ -103,6 +103,9 @@ NFVocalSuiteAudioProcessorEditor::NFVocalSuiteAudioProcessorEditor(NFVocalSuiteA
     outAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(proc.apvts, "output", outKnob);
     mixAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(proc.apvts, "mix", mixKnob);
     knob.textFromValueFunction = [](double v) { return juce::String(juce::roundToInt(v)) + " %"; };
+    fftWin.resize(kFftSize); fftData.resize(kFftSize * 2);
+    for (int i = 0; i < kFftSize; ++i) fftWin[(size_t) i] = 0.5f - 0.5f * std::cos(2.0f * juce::MathConstants<float>::pi * (float) i / (float) (kFftSize - 1));
+    for (int i = 0; i < kSpecCols; ++i) specIn[i] = specOut[i] = -100.0f;
     selectStage(juce::jlimit(0, nfvs::kStages - 1, (int) p.apvts.state.getProperty("stage", 0)));
 
     constrainer.setFixedAspectRatio((double) kBaseW / (double) kBaseH);
@@ -219,7 +222,102 @@ void NFVocalSuiteAudioProcessorEditor::timerCallback()
     const auto& si = nfvs::kStageInfo[stage];
     if (si.activity[0] != 0) target = juce::jlimit(0.0f, 1.0f, proc.chainRef().infoAt(stage) / 12.0f);
     act = target > act ? target : act + (target - act) * 0.15f;
+    if (stage == nfvs::Fix || stage == nfvs::Tone) updateSpectrum();
     repaint();
+}
+
+// Spectrum of the signal before / after the selected stage (FIX: points 0 -> 1, TONE: points 1 -> 2), log frequency axis, in dB.
+void NFVocalSuiteAudioProcessorEditor::updateSpectrum()
+{
+    const double fs = std::max(8000.0, proc.getSampleRate());
+    const int pts[2] = { stage == nfvs::Fix ? 0 : 1, stage == nfvs::Fix ? 1 : 2 };
+    for (int which = 0; which < 2; ++which)
+    {
+        std::vector<float> tmp((size_t) kFftSize);
+        proc.chainRef().copyAnalyzer(pts[which], tmp.data(), kFftSize);
+        for (int i = 0; i < kFftSize; ++i) fftData[(size_t) i] = tmp[(size_t) i] * fftWin[(size_t) i];
+        std::fill(fftData.begin() + kFftSize, fftData.end(), 0.0f);
+        fft.performFrequencyOnlyForwardTransform(fftData.data());
+        float* dst = which == 0 ? specIn : specOut;
+        const float binHz = (float) fs / (float) kFftSize;
+        for (int col = 0; col < kSpecCols; ++col)
+        {
+            const float f0 = 30.0f * std::pow(18000.0f / 30.0f, (float) col / (float) kSpecCols);
+            const float f1 = 30.0f * std::pow(18000.0f / 30.0f, (float) (col + 1) / (float) kSpecCols);
+            const int b0 = juce::jlimit(1, kFftSize / 2 - 1, (int) (f0 / binHz)), b1 = juce::jlimit(b0, kFftSize / 2 - 1, (int) std::ceil(f1 / binHz));
+            float pw = 0.0f; int cnt = 0;
+            for (int b = b0; b <= b1; ++b) { const float a = fftData[(size_t) b] / ((float) kFftSize * 0.25f); pw += a * a; ++cnt; }
+            const float db = 10.0f * std::log10(pw / (float) std::max(1, cnt) + 1e-12f);
+            dst[col] += (std::max(db, -100.0f) - dst[col]) * 0.35f;
+        }
+    }
+}
+
+void NFVocalSuiteAudioProcessorEditor::drawSpectrum(juce::Graphics& g, juce::Rectangle<float> wp, juce::Colour accent, bool modOn)
+{
+    const auto r = wp.reduced(14.0f, 12.0f);
+    auto xOf = [&](float hz) { return r.getX() + r.getWidth() * std::log(hz / 30.0f) / std::log(18000.0f / 30.0f); };
+    auto yOf = [&](float db) { return r.getBottom() - r.getHeight() * juce::jlimit(0.0f, 1.0f, (db + 100.0f) / 70.0f); };   // -100 .. -30 dB
+    g.setColour(juce::Colour(0xff17171a));
+    for (int i = 1; i < 4; ++i) g.drawHorizontalLine((int) (r.getY() + r.getHeight() * (float) i / 4.0f), r.getX(), r.getRight());
+    g.setFont(font(8.5f)); 
+    for (float hz : { 100.0f, 1000.0f, 10000.0f })
+    {
+        g.setColour(juce::Colour(0xff222226)); g.drawVerticalLine((int) xOf(hz), r.getY(), r.getBottom());
+        g.setColour(kMuted); g.drawText(hz >= 1000.0f ? juce::String((int) (hz / 1000.0f)) + "k" : juce::String((int) hz), juce::Rectangle<float>(xOf(hz) + 2.0f, r.getBottom() - 11.0f, 30.0f, 10.0f), juce::Justification::left);
+    }
+    juce::Path pin, pout, fill;
+    for (int i = 0; i < kSpecCols; ++i)
+    {
+        const float x = r.getX() + r.getWidth() * ((float) i + 0.5f) / (float) kSpecCols;
+        if (i == 0) { pin.startNewSubPath(x, yOf(specIn[i])); pout.startNewSubPath(x, yOf(specOut[i])); }
+        else { pin.lineTo(x, yOf(specIn[i])); pout.lineTo(x, yOf(specOut[i])); }
+    }
+    fill = pout; fill.lineTo(r.getRight(), r.getBottom()); fill.lineTo(r.getX(), r.getBottom()); fill.closeSubPath();
+    const auto col = modOn ? accent : juce::Colour(0xff6b6f77);
+    g.setGradientFill(juce::ColourGradient(col.withAlpha(0.30f), 0, r.getY(), col.withAlpha(0.02f), 0, r.getBottom(), false));
+    g.fillPath(fill);
+    g.setColour(juce::Colour(0xffc9ccd2).withAlpha(0.65f)); g.strokePath(pin, juce::PathStrokeType(1.2f));
+    g.setColour(col); g.strokePath(pout, juce::PathStrokeType(2.0f));
+    g.setFont(font(9.0f, true));
+    g.setColour(juce::Colour(0xffc9ccd2)); g.drawText("BEFORE", juce::Rectangle<float>(wp.getX() + 14.0f, wp.getY() + 6.0f, 80.0f, 12.0f), juce::Justification::centredLeft);
+    g.setColour(col); g.drawText(juce::String("AFTER ") + nfvs::kStageInfo[stage].name, juce::Rectangle<float>(wp.getX() + 14.0f, wp.getY() + 19.0f, 160.0f, 12.0f), juce::Justification::centredLeft);
+}
+
+// Voice positions: the original in the centre, the added copies to the left and right (heights follow the live level and the amount).
+void NFVocalSuiteAudioProcessorEditor::drawVoices(juce::Graphics& g, juce::Rectangle<float> wp, juce::Colour accent, bool modOn)
+{
+    const auto& chain = proc.chainRef();
+    const int pos = chain.histWritePos(), cols = nfvs::Chain::kHist;
+    float lvl = 0.0f;
+    for (int k = 1; k <= 6; ++k) lvl = std::max(lvl, chain.histAt(0, (pos - k + cols) % cols));
+    const float n = juce::jlimit(0.0f, 1.0f, (nfvs::toDb(lvl) + 54.0f) / 54.0f);
+    const float amt = modOn ? pv(sid("amt")) / 100.0f : 0.0f;
+    const int mode = juce::jlimit(0, 2, juce::roundToInt(pv(sid("mode"))));
+    const auto r = wp.reduced(20.0f, 14.0f);
+    const float cx = r.getCentreX(), base = r.getBottom() - 16.0f, full = r.getHeight() - 36.0f;
+    g.setColour(juce::Colour(0xff222226)); g.drawHorizontalLine((int) base, r.getX(), r.getRight());
+    struct Voice { float pos, gain; };   // pos -1..1
+    std::vector<Voice> vs;
+    vs.push_back({ 0.0f, 1.0f });
+    if (mode == 0) { vs.push_back({ -0.55f, 0.8f }); vs.push_back({ 0.55f, 0.8f }); }
+    else if (mode == 1) { for (float p : { -0.8f, -0.4f, 0.4f, 0.8f }) vs.push_back({ p, 0.65f }); }
+    else { vs.push_back({ -0.92f, 0.9f }); vs.push_back({ 0.92f, 0.9f }); }
+    for (const auto& v : vs)
+    {
+        const bool centre = v.pos == 0.0f;
+        const float x = cx + v.pos * (r.getWidth() * 0.5f - 20.0f);
+        const float h = std::max(3.0f, full * n * (centre ? 1.0f : v.gain * (0.15f + 0.85f * amt)));
+        const auto col = centre ? juce::Colour(0xffe9ebef) : (modOn ? accent : juce::Colour(0xff6b6f77));
+        g.setColour(col.withAlpha(centre ? 0.30f : 0.22f)); g.fillEllipse(x - 9.0f, base - h - 9.0f, 18.0f, 18.0f);
+        g.setColour(col); g.drawLine(x, base, x, base - h, centre ? 2.4f : 2.0f);
+        g.fillEllipse(x - 3.5f, base - h - 3.5f, 7.0f, 7.0f);
+    }
+    g.setFont(font(9.0f, true)); g.setColour(kMuted);
+    g.drawText("L", juce::Rectangle<float>(r.getX(), base + 2.0f, 20.0f, 12.0f), juce::Justification::centredLeft);
+    g.drawText("R", juce::Rectangle<float>(r.getRight() - 20.0f, base + 2.0f, 20.0f, 12.0f), juce::Justification::centredRight);
+    g.drawText("CENTRE", juce::Rectangle<float>(cx - 30.0f, base + 2.0f, 60.0f, 12.0f), juce::Justification::centred);
+    g.setColour(accent); g.drawText("VOICES", juce::Rectangle<float>(wp.getX() + 14.0f, wp.getY() + 6.0f, 120.0f, 12.0f), juce::Justification::centredLeft);
 }
 
 void NFVocalSuiteAudioProcessorEditor::paint(juce::Graphics& g)
@@ -264,6 +362,10 @@ void NFVocalSuiteAudioProcessorEditor::paint(juce::Graphics& g)
     g.setColour(kDark); g.fillRoundedRectangle(wp, 8.0f);
     g.setColour(kLine); g.drawRoundedRectangle(wp.reduced(0.5f), 8.0f, 1.0f);
     const auto& chain = proc.chainRef();
+    if (stage == nfvs::Fix || stage == nfvs::Tone) drawSpectrum(g, wp, accent, modOn);
+    else if (stage == nfvs::Voices) drawVoices(g, wp, accent, modOn);
+    else
+    {
     const int pos = chain.histWritePos(), cols = nfvs::Chain::kHist;
     for (int lane = 0; lane < 2; ++lane)
     {
@@ -284,6 +386,7 @@ void NFVocalSuiteAudioProcessorEditor::paint(juce::Graphics& g)
     g.setFont(font(9.0f, true));
     g.setColour(kMuted); g.drawText("ORIGINAL", juce::Rectangle<float>(wp.getX() + 14.0f, wp.getY() + 8.0f, 120.0f, 12.0f), juce::Justification::centredLeft);
     g.setColour(accent); g.drawText(juce::String("AFTER ") + si.name, juce::Rectangle<float>(wp.getX() + 14.0f, wp.getY() + 68.0f, 200.0f, 12.0f), juce::Justification::centredLeft);
+    }
 
     // ---- left panel: style
     auto panel = [&](juce::Rectangle<float> r, const char* title) {

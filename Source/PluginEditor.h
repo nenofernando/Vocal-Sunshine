@@ -31,6 +31,9 @@ private:
     int presetIndex() const;
     void stepPreset(int dir);
     void showPresetMenu();
+    void updateSpectrum();
+    void drawSpectrum(juce::Graphics&, juce::Rectangle<float>, juce::Colour, bool);
+    void drawVoices(juce::Graphics&, juce::Rectangle<float>, juce::Colour, bool);
 
     // layout (base 810 x 500)
     juce::Rectangle<float> bypassRect() const { return { 538.0f, 16.0f, 84.0f, 21.0f }; }
@@ -53,6 +56,10 @@ private:
     int stage = 0;
     bool bypassed = false;
     float act = 0.0f;
+    static constexpr int kFftOrder = 11, kFftSize = 1 << kFftOrder, kSpecCols = 200;
+    juce::dsp::FFT fft { kFftOrder };
+    std::vector<float> fftWin, fftData;
+    float specIn[kSpecCols] = {}, specOut[kSpecCols] = {};
     juce::String presetName;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NFVocalSuiteAudioProcessorEditor)
 };
