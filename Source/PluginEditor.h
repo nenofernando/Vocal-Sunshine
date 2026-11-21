@@ -66,7 +66,7 @@ private:
     juce::Slider knob, outKnob, mixKnob, lowKnob, highKnob, atkKnob, relKnob, ratKnob;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> knobAtt, outAtt, mixAtt, lowAtt, highAtt, atkAtt, relAtt, ratAtt;
     juce::ComponentBoundsConstrainer constrainer;
-    juce::Image logo, signature;
+    juce::Image logo;
     int stage = 0;
     bool bypassed = false;
     bool draggingSpread = false;
