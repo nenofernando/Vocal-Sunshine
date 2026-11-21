@@ -16,7 +16,7 @@ NFVocalSuiteAudioProcessor::NFVocalSuiteAudioProcessor()
     outP = apvts.getRawParameterValue("output"); mixP = apvts.getRawParameterValue("mix");
     for (int v = 0; v < 6; ++v) hvP[v] = apvts.getRawParameterValue("hv" + juce::String(v + 1));
     hkeyP = apvts.getRawParameterValue("hkey");
-    vspreadP = apvts.getRawParameterValue("vspread"); pkeyP = apvts.getRawParameterValue("pkey");
+    vspreadP = apvts.getRawParameterValue("vspread");
     for (int b = 0; b < 4; ++b)
         for (int k = 0; k < 3; ++k) eqP[b][k] = apvts.getRawParameterValue("eq" + juce::String(b + 1) + "fgq"[k]);
     ctlP[0] = apvts.getRawParameterValue("ctlatk"); ctlP[1] = apvts.getRawParameterValue("ctlrel"); ctlP[2] = apvts.getRawParameterValue("ctlratio");
@@ -51,7 +51,7 @@ void NFVocalSuiteAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     }
     prm.outputDb = outP->load(); prm.mix = mixP->load(); for (int v = 0; v < 6; ++v) prm.hv[v] = hvP[v]->load() > 0.5f;
     prm.hkey = juce::roundToInt(hkeyP->load());
-    prm.vSpread = vspreadP->load(); prm.pkey = juce::roundToInt(pkeyP->load());
+    prm.vSpread = vspreadP->load();
     for (int b = 0; b < 4; ++b) { prm.eqF[b] = eqP[b][0]->load(); prm.eqG[b] = eqP[b][1]->load(); prm.eqQ[b] = eqP[b][2]->load(); }
     prm.ctlAtk = ctlP[0]->load(); prm.ctlRel = ctlP[1]->load(); prm.ctlRatio = ctlP[2]->load();
     prm.lowcutHz = lowP->load(); prm.highcutHz = highP->load();
@@ -105,8 +105,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout NFVocalSuiteAudioProcessor::
         juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f), 0.0f, juce::AudioParameterFloatAttributes().withLabel("dB")));
     v.push_back(std::make_unique<juce::AudioParameterFloat>(ID{ "mix", 1 }, "Mix",
         juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 100.0f, juce::AudioParameterFloatAttributes().withLabel("%")));
-    v.push_back(std::make_unique<juce::AudioParameterChoice>(ID{ "pkey", 1 }, "Pitch Key",
-        juce::StringArray { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }, 0));
     {
         auto logRange = [](float lo, float hi) { juce::NormalisableRange<float> r(lo, hi, 0.0f); r.setSkewForCentre(std::sqrt(lo * hi)); return r; };
         const float lo[4] = { 40.0f, 120.0f, 800.0f, 3000.0f }, hi[4] = { 500.0f, 2500.0f, 9000.0f, 18000.0f }, def[4] = { 120.0f, 400.0f, 3000.0f, 10000.0f };

@@ -38,14 +38,13 @@ private:
     void drawSpectrum(juce::Graphics&, juce::Rectangle<float>, juce::Colour, bool);
     void drawVoices(juce::Graphics&, juce::Rectangle<float>, juce::Colour, bool);
     void drawHarmony(juce::Graphics&, juce::Rectangle<float>, juce::Colour, bool);
-    void drawPitch(juce::Graphics&, juce::Rectangle<float>, juce::Colour, bool);
     void drawEq(juce::Graphics&, juce::Rectangle<float>, juce::Colour, bool);
     void applyEqCurve(int style);
     int eqNodeAt(juce::Point<float> pos) const;
     juce::Point<float> eqNodePos(int band) const;
     void setEqFromPos(int band, juce::Point<float> pos);
     juce::Rectangle<float> eqArea() const { return waveRect().reduced(14.0f, 12.0f); }
-    juce::String keyId() const { return stage == nfvs::Pitch ? "pkey" : "hkey"; }
+    juce::String keyId() const { return "hkey"; }
 
     // layout (base 810 x 500)
     juce::Rectangle<float> bypassRect() const { return { 538.0f, 16.0f, 84.0f, 21.0f }; }
@@ -55,7 +54,7 @@ private:
     juce::Rectangle<float> rightPanel() const { return { 566.0f, 210.0f, 214.0f, 200.0f }; }
     juce::Rectangle<float> modeRect(int i) const { return { 44.0f, 238.0f + 38.0f * (float) i, 186.0f, 30.0f }; }
     juce::Rectangle<float> switchRow(int row) const { return { 576.0f, 236.0f + 30.0f * (float) row, 194.0f, 24.0f }; }   // 0 module, 1 A, 2 B
-    juce::Rectangle<float> railDot(int i) const { return { 405.0f + ((float) i - 5.5f) * 58.0f - 28.0f, 428.0f, 56.0f, 50.0f }; }
+    juce::Rectangle<float> railDot(int i) const { return { 405.0f + ((float) i - 5.0f) * 62.0f - 30.0f, 428.0f, 60.0f, 50.0f }; }
     juce::Rectangle<float> prevRect() const { return { 20.0f, 436.0f, 30.0f, 34.0f }; }
     juce::Rectangle<float> nextRect() const { return { 760.0f, 436.0f, 30.0f, 34.0f }; }
     juce::Rectangle<float> harmChip(int col) const { const float cw = (waveRect().getWidth() - 20.0f) / 7.0f; return { waveRect().getX() + 10.0f + cw * (float) col + 5.0f, waveRect().getBottom() - 38.0f, cw - 10.0f, 26.0f }; }

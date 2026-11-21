@@ -206,28 +206,6 @@ int main()
         check(goertzel(mnr, 220.0, 261.63, nullptr) > goertzel(flat(), 220.0, 261.63, nullptr) + 6.0, "in A minor the +3rd is C");
     }
 
-    std::printf("PITCH: correction onto the scale\n");
-    {
-        auto goertz = [&](const nfvs::Params& p, double f0, double fProbe) {
-            nfvs::Chain ch; ch.prepare(kFs);
-            std::vector<float> l(480), r(480); double re = 0, im = 0; long n = 0;
-            for (long blk = 0; blk < 400; ++blk)
-            {
-                for (int i = 0; i < 480; ++i) { const double t = (double) (blk * 480 + i) / kFs; l[(size_t) i] = r[(size_t) i] = (float) (0.3 * (std::sin(tw * f0 * t) + 0.3 * std::sin(tw * 2 * f0 * t) + 0.15 * std::sin(tw * 3 * f0 * t))); }
-                ch.process(l.data(), r.data(), 480, p);
-                if (blk > 160) for (int i = 0; i < 480; ++i) { const double t = (double) (blk * 480 + i) / kFs; re += l[(size_t) i] * std::cos(tw * fProbe * t); im += l[(size_t) i] * std::sin(tw * fProbe * t); ++n; }
-            }
-            return 20.0 * std::log10(std::sqrt(re * re + im * im) / (double) n * 2.0 + 1e-9);
-        };
-        const double sharp = 220.0 * std::pow(2.0, 0.35 / 12.0);      // 35 cents above A3
-        auto p = flat(); p.amt[nfvs::Pitch] = 100; p.mode[nfvs::Pitch] = 2; p.a[nfvs::Pitch] = true; p.b[nfvs::Pitch] = false;   // chromatic, hard
-        check(goertz(p, sharp, 220.0) > goertz(flat(), sharp, 220.0) + 12.0, "a note 35 cents sharp is pulled onto 220 Hz");
-        auto half = p; half.amt[nfvs::Pitch] = 0;
-        check(std::abs(goertz(half, sharp, sharp) - goertz(flat(), sharp, sharp)) < 0.5, "amount 0 leaves the note alone");
-        auto maj = p; maj.mode[nfvs::Pitch] = 0; maj.pkey = 0;          // C major: 233.1 Hz (A#3) is not in the scale, nearest are A3 and B3
-        const double ais = 220.0 * std::pow(2.0, 1.0 / 12.0 + 0.2 / 12.0);
-        check(goertz(maj, ais, 246.94) > goertz(flat(), ais, 246.94) + 10.0, "C major pulls A#3 (+20 cents) up to B3");
-    }
     std::printf("EQ: shelves and bells\n");
     {
         auto tone = [&](double f) { return [f, tw](double t) { return (float) (0.2 * std::sin(tw * f * t)); }; };

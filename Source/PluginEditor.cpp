@@ -228,7 +228,7 @@ void NFVocalSuiteAudioProcessorEditor::mouseDown(const juce::MouseEvent& e)
         if (railDot(i).contains(pos)) { selectStage(i); return; }
     if (prevRect().contains(pos)) { selectStage((stage + nfvs::kStages - 1) % nfvs::kStages); return; }
     if (nextRect().contains(pos)) { selectStage((stage + 1) % nfvs::kStages); return; }
-    if (stage == nfvs::Harmony || stage == nfvs::Pitch)
+    if (stage == nfvs::Harmony)
     {
         static const int kColToHv[7] = { 0, 1, -1, 2, 3, 4, 5 };
         for (int c = 0; c < 7 && stage == nfvs::Harmony; ++c)
@@ -468,7 +468,6 @@ void NFVocalSuiteAudioProcessorEditor::paint(juce::Graphics& g)
     const auto& chain = proc.chainRef();
     if (stage == nfvs::Fix || stage == nfvs::Tone) drawSpectrum(g, wp, accent, modOn);
     else if (stage == nfvs::Eq) drawEq(g, wp, accent, modOn);
-    else if (stage == nfvs::Pitch) drawPitch(g, wp, accent, modOn);
     else if (stage == nfvs::Voices) drawVoices(g, wp, accent, modOn);
     else if (stage == nfvs::Harmony) drawHarmony(g, wp, accent, modOn);
     else
@@ -534,7 +533,7 @@ void NFVocalSuiteAudioProcessorEditor::paint(juce::Graphics& g)
         for (const auto& k : kn)
             g.drawText(k.second, juce::Rectangle<float>((float) k.first->getBounds().getCentreX() / scale() - 30.0f, 396.0f, 60.0f, 12.0f), juce::Justification::centred);
     }
-    else if (stage == nfvs::Harmony || stage == nfvs::Pitch)
+    else if (stage == nfvs::Harmony)
     {
         static const char* kKeys[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
         const auto kr = keyRect();
@@ -544,7 +543,7 @@ void NFVocalSuiteAudioProcessorEditor::paint(juce::Graphics& g)
         g.setColour(accent); g.setFont(font(13.0f, true));
         g.drawText(kKeys[juce::jlimit(0, 11, juce::roundToInt(pv(keyId())))], kr.withTrimmedRight(14.0f), juce::Justification::centredRight);
     }
-    if (stage != nfvs::Control && stage != nfvs::Harmony && stage != nfvs::Pitch)
+    if (stage != nfvs::Control && stage != nfvs::Harmony)
     {
         const auto lp = leftPanel();
         g.setColour(kMuted); g.setFont(font(8.5f, true));
@@ -754,47 +753,4 @@ void NFVocalSuiteAudioProcessorEditor::drawEq(juce::Graphics& g, juce::Rectangle
     g.drawText(txt, juce::Rectangle<float>(wp.getRight() - 330.0f, wp.getY() + 6.0f, 316.0f, 14.0f), juce::Justification::centredRight);
     g.setColour(kMuted); g.setFont(font(9.0f));
     g.drawText("Drag the points. Mouse wheel on a bell = width (Q). Double-click = reset.", juce::Rectangle<float>(wp.getX() + 14.0f, wp.getBottom() - 20.0f, 420.0f, 12.0f), juce::Justification::centredLeft);
-}
-
-// ---- PITCH: piano roll with the detected note and the corrected note ----------------------------------------------------
-void NFVocalSuiteAudioProcessorEditor::drawPitch(juce::Graphics& g, juce::Rectangle<float> wp, juce::Colour accent, bool modOn)
-{
-    const auto& chain = proc.chainRef();
-    const int pos = chain.histWritePos(), cols = nfvs::Chain::kHist;
-    const auto r = wp.reduced(14.0f, 14.0f).withTrimmedLeft(30.0f);
-    float lo = 1e9f, hi = -1e9f;
-    for (int i = 0; i < cols; ++i)
-        for (int k = 0; k < 2; ++k) { const float m = chain.pitchHistAt(k, i); if (m >= 0.0f) { lo = std::min(lo, m); hi = std::max(hi, m); } }
-    if (hi < lo) { lo = 52.0f; hi = 62.0f; }
-    const float centre = 0.5f * (lo + hi), half = std::max(6.5f, 0.5f * (hi - lo) + 2.5f);
-    lo = centre - half; hi = centre + half;
-    auto yOf = [&](float m) { return r.getBottom() - r.getHeight() * (m - lo) / (hi - lo); };
-    static const char* kNote[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
-    static const bool kMaj[12] = { 1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1 }, kMin[12] = { 1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1, 0 };
-    const int mode = juce::jlimit(0, 2, juce::roundToInt(pv(sid("mode")))), key = juce::roundToInt(pv("pkey"));
-    g.setFont(font(8.5f));
-    for (int n = (int) std::ceil(lo); n <= (int) std::floor(hi); ++n)
-    {
-        const int pc = ((n % 12) + 12) % 12, rel = (((n - key) % 12) + 12) % 12;
-        const bool inScale = mode >= 2 ? true : (mode == 0 ? kMaj[rel] : kMin[rel]);
-        g.setColour(juce::Colour(inScale ? 0xff2c2c32 : 0xff17171a)); g.drawHorizontalLine((int) yOf((float) n), r.getX(), r.getRight());
-        if (inScale && (hi - lo) < 30.0f) { g.setColour(pc == 0 ? kText : kMuted); g.drawText(juce::String(kNote[pc]) + (pc == 0 ? juce::String(n / 12 - 1) : juce::String()), juce::Rectangle<float>(wp.getX() + 8.0f, yOf((float) n) - 6.0f, 26.0f, 12.0f), juce::Justification::centredLeft); }
-    }
-    const auto col = modOn ? accent : juce::Colour(0xff6b6f77);
-    for (int i = 1; i < cols; ++i)
-    {
-        const int i0 = (pos + i - 1) % cols, i1 = (pos + i) % cols;
-        const float x0 = r.getX() + r.getWidth() * (float) (i - 1) / (float) (cols - 1), x1 = r.getX() + r.getWidth() * (float) i / (float) (cols - 1);
-        const float d0 = chain.pitchHistAt(0, i0), d1 = chain.pitchHistAt(0, i1), c0 = chain.pitchHistAt(1, i0), c1 = chain.pitchHistAt(1, i1);
-        if (d0 >= 0.0f && d1 >= 0.0f && std::abs(d1 - d0) < 3.0f) { g.setColour(juce::Colour(0xffc9ccd2).withAlpha(0.6f)); g.drawLine(x0, yOf(d0), x1, yOf(d1), 1.5f); }
-        if (c0 >= 0.0f && c1 >= 0.0f && std::abs(c1 - c0) < 3.0f) { g.setColour(col); g.drawLine(x0, yOf(c0), x1, yOf(c1), 2.4f); }
-    }
-    g.setFont(font(9.0f, true));
-    g.setColour(juce::Colour(0xffc9ccd2)); g.drawText("DETECTED", juce::Rectangle<float>(wp.getX() + 40.0f, wp.getY() + 5.0f, 80.0f, 12.0f), juce::Justification::centredLeft);
-    g.setColour(col); g.drawText("CORRECTED", juce::Rectangle<float>(wp.getX() + 118.0f, wp.getY() + 5.0f, 90.0f, 12.0f), juce::Justification::centredLeft);
-    const float now = chain.pitchNowMidi(), corr = chain.infoAt(nfvs::Pitch);
-    juce::String txt = now < 0.0f ? juce::String("--") : juce::String(kNote[((int) std::lround(now) % 12 + 12) % 12]) + juce::String((int) std::lround(now) / 12 - 1)
-                                                         + "  " + (now - std::round(now) >= 0.0f ? "+" : "") + juce::String(juce::roundToInt((now - std::round(now)) * 100.0f)) + " cents";
-    g.setColour(kText); g.setFont(font(11.0f, true));
-    g.drawText(txt + "     CORRECTION " + juce::String(corr, 2) + " st", juce::Rectangle<float>(wp.getRight() - 330.0f, wp.getY() + 5.0f, 316.0f, 14.0f), juce::Justification::centredRight);
 }
