@@ -2,11 +2,11 @@
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
 
-class NFVocalSuiteAudioProcessorEditor final : public juce::AudioProcessorEditor, private juce::Timer
+class NFVocalSunshineAudioProcessorEditor final : public juce::AudioProcessorEditor, private juce::Timer
 {
 public:
-    explicit NFVocalSuiteAudioProcessorEditor(NFVocalSuiteAudioProcessor&);
-    ~NFVocalSuiteAudioProcessorEditor() override;
+    explicit NFVocalSunshineAudioProcessorEditor(NFVocalSunshineAudioProcessor&);
+    ~NFVocalSunshineAudioProcessorEditor() override;
     void paint(juce::Graphics&) override;
     void resized() override;
     void mouseDown(const juce::MouseEvent&) override;
@@ -29,7 +29,7 @@ private:
     float scale() const { return (float) getWidth() / (float) kBaseW; }
     void selectStage(int s);
     float pv(const juce::String& id) const { return proc.apvts.getRawParameterValue(id)->load(); }
-    juce::String sid(const char* suffix) const { return NFVocalSuiteAudioProcessor::stageId(stage, suffix); }
+    juce::String sid(const char* suffix) const { return NFVocalSunshineAudioProcessor::stageId(stage, suffix); }
     void toggleBool(const juce::String& id);
     void setChoice(const juce::String& id, int index);
     int presetIndex() const;
@@ -59,7 +59,7 @@ private:
     juce::Rectangle<float> knobStyleRect() const { return { 452.0f, 16.0f, 78.0f, 21.0f }; }
     juce::Rectangle<float> keyRect() const { return { 552.0f, 292.0f, 240.0f, 36.0f }; }
 
-    NFVocalSuiteAudioProcessor& proc;
+    NFVocalSunshineAudioProcessor& proc;
     KnobLook look, smallLook;
     juce::Slider knob, outKnob, mixKnob, lowKnob, highKnob, atkKnob, relKnob, ratKnob;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> knobAtt, outAtt, mixAtt, lowAtt, highAtt, atkAtt, relAtt, ratAtt;
@@ -76,5 +76,5 @@ private:
     std::vector<float> fftWin, fftData;
     float specIn[kSpecCols] = {}, specOut[kSpecCols] = {};
     juce::String presetName;
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NFVocalSuiteAudioProcessorEditor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NFVocalSunshineAudioProcessorEditor)
 };

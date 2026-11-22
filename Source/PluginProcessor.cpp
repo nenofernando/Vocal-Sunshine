@@ -2,10 +2,10 @@
 #include "PluginEditor.h"
 #include "Presets.h"
 
-NFVocalSuiteAudioProcessor::NFVocalSuiteAudioProcessor()
+NFVocalSunshineAudioProcessor::NFVocalSunshineAudioProcessor()
     : AudioProcessor(BusesProperties().withInput("Input", juce::AudioChannelSet::stereo(), true)
                                       .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
-      apvts(*this, nullptr, "NF_VOCAL_SUITE_STATE", createParameters())
+      apvts(*this, nullptr, "NF_VOCAL_SUNSHINE_STATE", createParameters())
 {
     for (int s = 0; s < nfvs::kStages; ++s)
     {
@@ -15,7 +15,7 @@ NFVocalSuiteAudioProcessor::NFVocalSuiteAudioProcessor()
     }
     outP = apvts.getRawParameterValue("output"); mixP = apvts.getRawParameterValue("mix");
     for (int v = 0; v < 6; ++v) hvP[v] = apvts.getRawParameterValue("hv" + juce::String(v + 1));
-    hkeyP = apvts.getRawParameterValue("hkey");
+    hkeyP = apvts.getRawParameterValue("hkey"); hleadP = apvts.getRawParameterValue("hlead");
     vspreadP = apvts.getRawParameterValue("vspread");
     for (int b = 0; b < 4; ++b)
         for (int k = 0; k < 3; ++k) eqP[b][k] = apvts.getRawParameterValue("eq" + juce::String(b + 1) + "fgq"[k]);
@@ -23,7 +23,7 @@ NFVocalSuiteAudioProcessor::NFVocalSuiteAudioProcessor()
     lowP = apvts.getRawParameterValue("lowcut"); highP = apvts.getRawParameterValue("highcut"); bypassP = apvts.getRawParameterValue("bypass");
 }
 
-void NFVocalSuiteAudioProcessor::prepareToPlay(double sr, int maxBlock)
+void NFVocalSunshineAudioProcessor::prepareToPlay(double sr, int maxBlock)
 {
     chain.prepare(sr);
     bypassMix.reset(sr, 0.015);
@@ -31,13 +31,13 @@ void NFVocalSuiteAudioProcessor::prepareToPlay(double sr, int maxBlock)
     for (auto& v : scratchIn) v.assign((size_t) std::max(1, maxBlock) + 64, 0.0f);
 }
 
-bool NFVocalSuiteAudioProcessor::isBusesLayoutSupported(const BusesLayout& l) const
+bool NFVocalSunshineAudioProcessor::isBusesLayoutSupported(const BusesLayout& l) const
 {
     const auto in = l.getMainInputChannelSet(), out = l.getMainOutputChannelSet();
     return (in == juce::AudioChannelSet::mono() || in == juce::AudioChannelSet::stereo()) && in == out;
 }
 
-void NFVocalSuiteAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+void NFVocalSunshineAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     juce::ScopedNoDenormals guard;
     const int numCh = std::min(2, buffer.getNumChannels()), n = buffer.getNumSamples();
@@ -50,7 +50,7 @@ void NFVocalSuiteAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
         prm.on[s] = onP[s]->load() > 0.5f; prm.a[s] = aP[s]->load() > 0.5f; prm.b[s] = bP[s]->load() > 0.5f;
     }
     prm.outputDb = outP->load(); prm.mix = mixP->load(); for (int v = 0; v < 6; ++v) prm.hv[v] = hvP[v]->load() > 0.5f;
-    prm.hkey = juce::roundToInt(hkeyP->load());
+    prm.hkey = juce::roundToInt(hkeyP->load()); prm.hLead = hleadP->load() > 0.5f;
     prm.vSpread = vspreadP->load();
     for (int b = 0; b < 4; ++b) { prm.eqF[b] = eqP[b][0]->load(); prm.eqG[b] = eqP[b][1]->load(); prm.eqQ[b] = eqP[b][2]->load(); }
     prm.ctlAtk = ctlP[0]->load(); prm.ctlRel = ctlP[1]->load(); prm.ctlRatio = ctlP[2]->load();
@@ -84,7 +84,7 @@ void NFVocalSuiteAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     }
 }
 
-juce::AudioProcessorValueTreeState::ParameterLayout NFVocalSuiteAudioProcessor::createParameters()
+juce::AudioProcessorValueTreeState::ParameterLayout NFVocalSunshineAudioProcessor::createParameters()
 {
     using ID = juce::ParameterID;
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> v;
@@ -125,6 +125,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout NFVocalSuiteAudioProcessor::
     static const char* kIv[6] = { "Harmony -8ve", "Harmony -3rd", "Harmony +3rd", "Harmony +5th", "Harmony +6th", "Harmony +8ve" };
     for (int i = 0; i < 6; ++i)
         v.push_back(std::make_unique<juce::AudioParameterBool>(ID{ "hv" + juce::String(i + 1), 1 }, kIv[i], i == 2 || i == 3));
+    v.push_back(std::make_unique<juce::AudioParameterBool>(ID{ "hlead", 1 }, "Harmony Lead", true));
     v.push_back(std::make_unique<juce::AudioParameterChoice>(ID{ "hkey", 1 }, "Harmony Key",
         juce::StringArray { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }, 0));
     v.push_back(std::make_unique<juce::AudioParameterFloat>(ID{ "lowcut", 1 }, "Low Cut",
@@ -135,7 +136,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout NFVocalSuiteAudioProcessor::
     return { v.begin(), v.end() };
 }
 
-void NFVocalSuiteAudioProcessor::applyPreset(int index)
+void NFVocalSunshineAudioProcessor::applyPreset(int index)
 {
     if (index < 0 || index >= kNumVSPresets) return;
     const auto& pr = kVSPresets[index];
@@ -156,14 +157,14 @@ void NFVocalSuiteAudioProcessor::applyPreset(int index)
     apvts.state.setProperty("presetName", juce::String(pr.name), nullptr);
 }
 
-void NFVocalSuiteAudioProcessor::getStateInformation(juce::MemoryBlock& dest)
+void NFVocalSunshineAudioProcessor::getStateInformation(juce::MemoryBlock& dest)
 {
     if (auto xml = apvts.copyState().createXml()) copyXmlToBinary(*xml, dest);
 }
-void NFVocalSuiteAudioProcessor::setStateInformation(const void* data, int size)
+void NFVocalSunshineAudioProcessor::setStateInformation(const void* data, int size)
 {
     if (auto xml = getXmlFromBinary(data, size); xml && xml->hasTagName(apvts.state.getType()))
         apvts.replaceState(juce::ValueTree::fromXml(*xml));
 }
-juce::AudioProcessorEditor* NFVocalSuiteAudioProcessor::createEditor() { return new NFVocalSuiteAudioProcessorEditor(*this); }
-juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new NFVocalSuiteAudioProcessor(); }
+juce::AudioProcessorEditor* NFVocalSunshineAudioProcessor::createEditor() { return new NFVocalSunshineAudioProcessorEditor(*this); }
+juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new NFVocalSunshineAudioProcessor(); }

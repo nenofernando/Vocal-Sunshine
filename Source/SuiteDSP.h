@@ -6,7 +6,7 @@
 #include <cmath>
 #include "Stages.h"
 
-// NF Vocal Suite signal chain: CLEAN -> FIX -> TONE -> CONTROL -> COLOR -> SPACE -> FINISH.
+// NF Vocal Sunshine signal chain: CLEAN -> FIX -> TONE -> CONTROL -> COLOR -> SPACE -> FINISH.
 // Each stage has an amount (0..1), a style (0..2), a module switch and two option switches.
 // Zero latency, no allocation while processing. A stage that is off or at 0 is transparent.
 namespace nfvs
@@ -18,6 +18,7 @@ struct Params
     bool on[kStages] = {}, a[kStages] = {}, b[kStages] = {};
     float outputDb = 0.0f, mix = 100.0f;
     float eqF[4] = { 120.0f, 400.0f, 3000.0f, 10000.0f }, eqG[4] = {}, eqQ[4] = { 1.0f, 1.0f, 1.0f, 1.0f };   // EQ: low shelf, 2 bells, high shelf
+    bool hLead = true;                // HARMONY: false = mute the lead and keep only the interval voices
     bool hv[6] = {};                  // harmony intervals: -8ve, -3rd, +3rd, +5th, +6th, +8ve
     int hkey = 0;                     // harmony key, 0 = C
     float vSpread = 100.0f;           // VOICES: how far the left / right copies open, 0..100 %
@@ -188,7 +189,7 @@ public:
         dcX[0] = dcX[1] = dcY[0] = dcY[1] = 0;
         std::fill(vBuf.begin(), vBuf.end(), 0.0f); vw = 0; lfo1 = 0; lfo2 = 1.3f;
         for (int v = 0; v < 6; ++v) { hPhase[v] = 0.0f; hSemi[v] = 0.0f; hPrev[v] = false; }
-        trkH.reset(); leadOut.store(-1.0f);
+        trkH.reset(); leadOut.store(-1.0f); leadG = 1.0f;
         colCount = 0; for (auto& v : colPk) v = 0;
     }
 
@@ -262,7 +263,8 @@ public:
             const int mHar = juce::jlimit(0, 2, p.mode[Harmony]);
             int nAct = 0; bool hAct[6];
             for (int v = 0; v < 6; ++v) { hAct[v] = hm > 0.002f && p.hv[v]; nAct += hAct[v] ? 1 : 0; }
-            const float hGain = hm * 1.4f / std::sqrt((float) std::max(1, nAct));   // at 100 % each voice is about as loud as the lead
+            const float hGain = hm * 2.6f / std::sqrt((float) std::max(1, nAct));   // at 100 % each voice is about 5 dB louder than the lead
+            leadG += (((!p.hLead && nAct > 0) ? 0.0f : 1.0f) - leadG) * 0.35f;       // lead muted only while at least one interval voice is on
             const bool hSpread = ta[Harmony] > 0.5f, hSoft = tb[Harmony] > 0.5f;
             float hL[6], hR[6], hRatio[6];
             if (trkH.voiced && trkH.period > 1.0f)
@@ -479,8 +481,9 @@ public:
                             wl += y * hL[v]; wr += y * hR[v];
                         }
                     if (hSoft) { wl = hLp.process(0, wl); wr = hLp.process(1, wr); }
-                    x[0] += hGain * wl; x[1] += hGain * wr;
+                    x[0] = x[0] * leadG + hGain * wl; x[1] = x[1] * leadG + hGain * wr;
                 }
+                else { x[0] *= leadG; x[1] *= leadG; }
                 if (++vw >= vLen) vw = 0;
                 tapPk[8][i] = std::max(std::abs(x[0]), std::abs(x[1]));
 
@@ -681,6 +684,7 @@ private:
     float hPhase[6] = {}, hSemi[6] = {}, hLen = 1440.0f;
     bool hPrev[6] = {};
     PitchTracker trkH;
+    float leadG = 1.0f;
     Biquad eqBq[4];
     std::array<float, 10> eqKey {};
     std::atomic<float> leadOut { -1.0f };

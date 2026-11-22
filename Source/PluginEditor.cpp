@@ -1,5 +1,5 @@
 #include "PluginEditor.h"
-#include "NFVocalSuiteBinaryData.h"
+#include "NFVocalSunshineBinaryData.h"
 #include "Presets.h"
 #include <complex>
 
@@ -13,7 +13,7 @@ juce::Colour stageColour(int s) { return juce::Colour(nfvs::kStageInfo[s].colour
 }
 
 // Hardware knob: printed scale, dark skirt, smooth brushed-aluminium cap (no machined rings), coloured pointer.
-void NFVocalSuiteAudioProcessorEditor::KnobLook::drawRotarySlider(juce::Graphics& g, int x, int y, int w, int h, float pos,
+void NFVocalSunshineAudioProcessorEditor::KnobLook::drawRotarySlider(juce::Graphics& g, int x, int y, int w, int h, float pos,
                                                                   float start, float end, juce::Slider& s)
 {
     const auto c = juce::Rectangle<float>((float) x, (float) y, (float) w, (float) h).getCentre();
@@ -39,52 +39,57 @@ void NFVocalSuiteAudioProcessorEditor::KnobLook::drawRotarySlider(juce::Graphics
         const float bodyR = R * (style == 1 ? 0.56f : 0.66f);
         if (style == 1)
         {
-            g.setGradientFill(juce::ColourGradient(juce::Colour(0x70ffb02e), c.x, c.y, juce::Colour(0x00ff8a1f), c.x + R * 0.95f, c.y, true));
-            g.fillEllipse(c.x - R * 0.95f, c.y - R * 0.95f, R * 1.9f, R * 1.9f);
+            // the sun "wakes up" with the knob: glow, ray length and colour grow, and the rays turn with the value
+            const float gr = R * (0.72f + 0.26f * pos);
+            g.setGradientFill(juce::ColourGradient(juce::Colour(0xffffb02e).withAlpha(0.08f + 0.62f * pos), c.x, c.y, juce::Colour(0x00ff8a1f), c.x + gr, c.y, true));
+            g.fillEllipse(c.x - gr, c.y - gr, gr * 2.0f, gr * 2.0f);
+            const auto rayIn = juce::Colour(0xffe0a64a).interpolatedWith(juce::Colour(0xffffe27a), pos), rayOut = juce::Colour(0xffd0601a).interpolatedWith(juce::Colour(0xffff8a1f), pos);
             for (int k = 0; k < 24; ++k)   // rays: long and short, alternating
             {
-                const float ang = (float) k * 2.0f * pi / 24.0f + 0.07f, half = (k % 2 == 0 ? 0.075f : 0.06f);
-                const float r0 = bodyR * 1.08f, r1 = R * (k % 2 == 0 ? 0.86f : 0.74f);
+                const float ang = (float) k * 2.0f * pi / 24.0f + 0.07f + pos * pi * 0.9f, half = (k % 2 == 0 ? 0.075f : 0.06f);
+                const float r0 = bodyR * 1.08f, rFull = R * (k % 2 == 0 ? 0.86f : 0.74f), r1 = r0 + (rFull - r0) * (0.40f + 0.60f * pos);
                 juce::Path ray;
                 ray.startNewSubPath(c.x + std::sin(ang - half) * r0, c.y - std::cos(ang - half) * r0);
                 ray.lineTo(c.x + std::sin(ang) * r1, c.y - std::cos(ang) * r1);
                 ray.lineTo(c.x + std::sin(ang + half) * r0, c.y - std::cos(ang + half) * r0);
                 ray.closeSubPath();
-                g.setGradientFill(juce::ColourGradient(juce::Colour(0xffffe27a), c.x + std::sin(ang) * r0, c.y - std::cos(ang) * r0, juce::Colour(0xffff8a1f), c.x + std::sin(ang) * r1, c.y - std::cos(ang) * r1, false));
+                g.setGradientFill(juce::ColourGradient(rayIn, c.x + std::sin(ang) * r0, c.y - std::cos(ang) * r0, rayOut, c.x + std::sin(ang) * r1, c.y - std::cos(ang) * r1, false));
                 g.fillPath(ray);
             }
-            g.setGradientFill(juce::ColourGradient(juce::Colour(0xfffff6c4), c.x - bodyR * 0.35f, c.y - bodyR * 0.4f, juce::Colour(0xffff9a1f), c.x + bodyR * 0.9f, c.y + bodyR * 0.95f, true));
+            g.setGradientFill(juce::ColourGradient(juce::Colour(0xfff0c46a).interpolatedWith(juce::Colour(0xfffff6c4), pos), c.x - bodyR * 0.35f, c.y - bodyR * 0.4f, juce::Colour(0xffc86a14).interpolatedWith(juce::Colour(0xffff9a1f), pos), c.x + bodyR * 0.9f, c.y + bodyR * 0.95f, true));
             g.fillEllipse(c.x - bodyR, c.y - bodyR, bodyR * 2.0f, bodyR * 2.0f);
             g.setColour(juce::Colour(0x55fff2b0)); g.drawEllipse(c.x - bodyR, c.y - bodyR, bodyR * 2.0f, bodyR * 2.0f, 1.2f);
         }
         else
         {
-            g.setGradientFill(juce::ColourGradient(juce::Colour(0x60cfe0ff), c.x, c.y, juce::Colour(0x00a8c4ff), c.x + R * 0.95f, c.y, true));
+            // real full moon: warm cream disc, soft grey-brown "seas", faint craters, darker limb, warm halo
+            g.setGradientFill(juce::ColourGradient(juce::Colour(0x70fff2c0), c.x, c.y, juce::Colour(0x00ffe29a), c.x + R * 0.95f, c.y, true));
             g.fillEllipse(c.x - R * 0.95f, c.y - R * 0.95f, R * 1.9f, R * 1.9f);
-            g.setGradientFill(juce::ColourGradient(juce::Colour(0xfffaf8ef), c.x - bodyR * 0.5f, c.y - bodyR * 0.6f, juce::Colour(0xffa9a79d), c.x + bodyR * 0.8f, c.y + bodyR * 0.9f, true));
+            g.setGradientFill(juce::ColourGradient(juce::Colour(0xfffffaE2), c.x - bodyR * 0.25f, c.y - bodyR * 0.3f, juce::Colour(0xffeedca0), c.x + bodyR * 0.85f, c.y + bodyR * 0.9f, true));
             g.fillEllipse(c.x - bodyR, c.y - bodyR, bodyR * 2.0f, bodyR * 2.0f);
             g.saveState();
             juce::Path disc; disc.addEllipse(c.x - bodyR, c.y - bodyR, bodyR * 2.0f, bodyR * 2.0f); g.reduceClipRegion(disc);
-            static const float maria[3][3] = { { -0.30f, -0.10f, 0.50f }, { 0.28f, 0.32f, 0.42f }, { 0.10f, -0.52f, 0.32f } };
-            for (const auto& m : maria)
+            static const float seas[7][4] = { { -0.38f, -0.14f, 0.46f, 0.46f }, { 0.12f, -0.40f, 0.30f, 0.40f }, { 0.34f, 0.02f, 0.30f, 0.42f }, { -0.02f, 0.30f, 0.26f, 0.32f },
+                                              { -0.50f, 0.36f, 0.22f, 0.30f }, { 0.55f, -0.30f, 0.16f, 0.26f }, { 0.05f, 0.62f, 0.18f, 0.22f } };
+            for (const auto& m : seas)   // x, y, radius, strength
             {
                 const float mx = c.x + m[0] * bodyR, my = c.y + m[1] * bodyR, mr = m[2] * bodyR;
-                g.setGradientFill(juce::ColourGradient(juce::Colour(0x3a6e6c66), mx, my, juce::Colour(0x006e6c66), mx + mr, my, true));
+                g.setGradientFill(juce::ColourGradient(juce::Colour(0xff86795a).withAlpha(m[3] * 0.95f), mx, my, juce::Colour(0xff86795a).withAlpha(0.0f), mx + mr, my, true));
                 g.fillEllipse(mx - mr, my - mr, mr * 2.0f, mr * 2.0f);
             }
-            static const float craters[9][3] = { { -0.35f, -0.30f, 0.18f }, { 0.30f, -0.45f, 0.12f }, { 0.45f, 0.10f, 0.20f }, { -0.10f, 0.35f, 0.15f }, { -0.55f, 0.25f, 0.10f },
-                                                 { 0.10f, -0.05f, 0.09f }, { 0.25f, 0.58f, 0.08f }, { -0.20f, -0.65f, 0.07f }, { 0.65f, -0.22f, 0.07f } };
+            static const float craters[5][3] = { { -0.30f, -0.62f, 0.07f }, { 0.42f, 0.38f, 0.06f }, { -0.05f, 0.05f, 0.05f }, { 0.20f, 0.74f, 0.05f }, { -0.62f, 0.05f, 0.05f } };
             for (const auto& cr : craters)
             {
                 const float cx2 = c.x + cr[0] * bodyR, cy2 = c.y + cr[1] * bodyR, r2 = cr[2] * bodyR;
-                g.setColour(juce::Colour(0x4a77756d)); g.fillEllipse(cx2 - r2, cy2 - r2, r2 * 2.0f, r2 * 2.0f);
-                g.setColour(juce::Colour(0x55ffffff)); g.drawEllipse(cx2 - r2 + 0.6f, cy2 - r2 + 0.9f, r2 * 2.0f, r2 * 2.0f, 1.0f);   // lit rim on the lower side
-                g.setColour(juce::Colour(0x33000000)); g.drawEllipse(cx2 - r2, cy2 - r2, r2 * 2.0f, r2 * 2.0f, 0.8f);
+                g.setGradientFill(juce::ColourGradient(juce::Colour(0x60fffbe6), cx2, cy2, juce::Colour(0x00fffbe6), cx2 + r2 * 1.8f, cy2, true));
+                g.fillEllipse(cx2 - r2 * 1.8f, cy2 - r2 * 1.8f, r2 * 3.6f, r2 * 3.6f);
             }
+            g.setGradientFill(juce::ColourGradient(juce::Colour(0x00604a1a), c.x, c.y, juce::Colour(0x46604a1a), c.x + bodyR, c.y, true));   // limb darkening
+            g.fillEllipse(c.x - bodyR, c.y - bodyR, bodyR * 2.0f, bodyR * 2.0f);
             g.restoreState();
         }
         const float a2 = start + pos * (end - start), sx2 = std::sin(a2), cy2 = -std::cos(a2);
-        g.setColour(style == 1 ? juce::Colour(0xff7a2d00) : juce::Colour(0xff3c4150));
+        g.setColour(style == 1 ? juce::Colour(0xff7a2d00) : juce::Colour(0xff5a4a2a));
         g.drawLine(c.x + sx2 * bodyR * 0.30f, c.y + cy2 * bodyR * 0.30f, c.x + sx2 * bodyR * 0.88f, c.y + cy2 * bodyR * 0.88f, 5.0f);
         return;
     }
@@ -101,11 +106,11 @@ void NFVocalSuiteAudioProcessorEditor::KnobLook::drawRotarySlider(juce::Graphics
     g.drawLine(c.x + sx * capR * 0.30f, c.y + cy * capR * 0.30f, c.x + sx * capR * 0.90f, c.y + cy * capR * 0.90f, big ? 5.0f : 2.8f);
 }
 
-NFVocalSuiteAudioProcessorEditor::NFVocalSuiteAudioProcessorEditor(NFVocalSuiteAudioProcessor& p)
+NFVocalSunshineAudioProcessorEditor::NFVocalSunshineAudioProcessorEditor(NFVocalSunshineAudioProcessor& p)
     : AudioProcessorEditor(&p), proc(p)
 {
-    logo = juce::ImageCache::getFromMemory(NFVocalSuiteBinaryData::_10_logo_nf_audio_tools_png,
-                                           NFVocalSuiteBinaryData::_10_logo_nf_audio_tools_pngSize);
+    logo = juce::ImageCache::getFromMemory(NFVocalSunshineBinaryData::_10_logo_nf_audio_tools_png,
+                                           NFVocalSunshineBinaryData::_10_logo_nf_audio_tools_pngSize);
     auto setup = [this](juce::Slider& s, KnobLook& l, int drag) {
         s.setLookAndFeel(&l);
         s.setSliderStyle(juce::Slider::RotaryVerticalDrag);
@@ -118,6 +123,7 @@ NFVocalSuiteAudioProcessorEditor::NFVocalSuiteAudioProcessorEditor(NFVocalSuiteA
         addAndMakeVisible(s);
     };
     setup(knob, look, 240);
+    knob.setPopupDisplayEnabled(false, false, nullptr);   // the value is already in the LCD window
     setup(outKnob, smallLook, 200);
     setup(mixKnob, smallLook, 200);
     setup(lowKnob, smallLook, 200);
@@ -163,15 +169,15 @@ NFVocalSuiteAudioProcessorEditor::NFVocalSuiteAudioProcessorEditor(NFVocalSuiteA
     startTimerHz(30);
 }
 
-NFVocalSuiteAudioProcessorEditor::~NFVocalSuiteAudioProcessorEditor()
+NFVocalSunshineAudioProcessorEditor::~NFVocalSunshineAudioProcessorEditor()
 {
     for (auto* s : { &knob, &outKnob, &mixKnob, &lowKnob, &highKnob, &atkKnob, &relKnob, &ratKnob }) s->setLookAndFeel(nullptr);
 }
 
 // Slider attachments install their own text functions, so ours are set after every attach: real units on every knob.
-void NFVocalSuiteAudioProcessorEditor::setupValueTexts()
+void NFVocalSunshineAudioProcessorEditor::setupValueTexts()
 {
-    auto ctlMode = [this]() { return juce::jlimit(0, 2, juce::roundToInt(pv(NFVocalSuiteAudioProcessor::stageId(nfvs::Control, "mode")))); };
+    auto ctlMode = [this]() { return juce::jlimit(0, 2, juce::roundToInt(pv(NFVocalSunshineAudioProcessor::stageId(nfvs::Control, "mode")))); };
     auto ms = [](double v) { return v < 10.0 ? juce::String(v, 1) + " ms" : juce::String(juce::roundToInt(v)) + " ms"; };
     atkKnob.textFromValueFunction = [ctlMode, ms](double v) { static const double b[3] = { 15.0, 24.0, 6.0 }; return ms(b[ctlMode()] * std::pow(4.0, (v - 50.0) / 50.0)); };
     relKnob.textFromValueFunction = [ctlMode, ms](double v) { static const double b[3] = { 220.0, 130.0, 90.0 }; return ms(b[ctlMode()] * std::pow(4.0, (v - 50.0) / 50.0)); };
@@ -191,7 +197,7 @@ void NFVocalSuiteAudioProcessorEditor::setupValueTexts()
     };
 }
 
-void NFVocalSuiteAudioProcessorEditor::selectStage(int s)
+void NFVocalSunshineAudioProcessorEditor::selectStage(int s)
 {
     stage = s;
     proc.apvts.state.setProperty("stage", s, nullptr);
@@ -204,7 +210,7 @@ void NFVocalSuiteAudioProcessorEditor::selectStage(int s)
     repaint();
 }
 
-void NFVocalSuiteAudioProcessorEditor::resized()
+void NFVocalSunshineAudioProcessorEditor::resized()
 {
     const float s = scale();
     auto place = [&](juce::Slider& sl, float cx, float cy, float size) {
@@ -221,20 +227,20 @@ void NFVocalSuiteAudioProcessorEditor::resized()
     proc.apvts.state.setProperty("uiWidth", getWidth(), nullptr);
 }
 
-int NFVocalSuiteAudioProcessorEditor::presetIndex() const
+int NFVocalSunshineAudioProcessorEditor::presetIndex() const
 {
     const auto name = proc.apvts.state.getProperty("presetName").toString();
     for (int i = 0; i < kNumVSPresets; ++i) if (name == kVSPresets[i].name) return i;
     return -1;
 }
 
-void NFVocalSuiteAudioProcessorEditor::stepPreset(int dir)
+void NFVocalSunshineAudioProcessorEditor::stepPreset(int dir)
 {
     const int cur = presetIndex();
     proc.applyPreset(cur < 0 ? (dir > 0 ? 0 : kNumVSPresets - 1) : (cur + dir + kNumVSPresets) % kNumVSPresets);
 }
 
-void NFVocalSuiteAudioProcessorEditor::showPresetMenu()
+void NFVocalSunshineAudioProcessorEditor::showPresetMenu()
 {
     juce::PopupMenu m;
     for (int i = 0; i < kNumVSPresets; ++i) m.addItem(i + 1, kVSPresets[i].name, true, i == presetIndex());
@@ -242,7 +248,7 @@ void NFVocalSuiteAudioProcessorEditor::showPresetMenu()
                     [this](int r) { if (r > 0) proc.applyPreset(r - 1); });
 }
 
-void NFVocalSuiteAudioProcessorEditor::toggleBool(const juce::String& id)
+void NFVocalSunshineAudioProcessorEditor::toggleBool(const juce::String& id)
 {
     if (auto* prm = proc.apvts.getParameter(id))
     {
@@ -250,7 +256,7 @@ void NFVocalSuiteAudioProcessorEditor::toggleBool(const juce::String& id)
     }
 }
 
-void NFVocalSuiteAudioProcessorEditor::setChoice(const juce::String& id, int index)
+void NFVocalSunshineAudioProcessorEditor::setChoice(const juce::String& id, int index)
 {
     if (auto* prm = proc.apvts.getParameter(id))
     {
@@ -258,7 +264,7 @@ void NFVocalSuiteAudioProcessorEditor::setChoice(const juce::String& id, int ind
     }
 }
 
-void NFVocalSuiteAudioProcessorEditor::mouseDown(const juce::MouseEvent& e)
+void NFVocalSunshineAudioProcessorEditor::mouseDown(const juce::MouseEvent& e)
 {
     const auto pos = e.position / scale();
     if (bypassRect().contains(pos)) { toggleBool("bypass"); return; }
@@ -293,12 +299,15 @@ void NFVocalSuiteAudioProcessorEditor::mouseDown(const juce::MouseEvent& e)
         return;
     }
     for (int i = 0; i < nfvs::kStages; ++i)   // module list: the LED switches the module on / off, the rest of the row selects it
-        if (moduleRow(i).contains(pos)) { if (pos.x < moduleRow(i).getX() + 30.0f) toggleBool(NFVocalSuiteAudioProcessor::stageId(i, "on")); else selectStage(i); return; }
+        if (moduleRow(i).contains(pos)) { if (pos.x < moduleRow(i).getX() + 30.0f) toggleBool(NFVocalSunshineAudioProcessor::stageId(i, "on")); else selectStage(i); return; }
     if (stage == nfvs::Harmony)
     {
         static const int kColToHv[7] = { 0, 1, -1, 2, 3, 4, 5 };
         for (int c = 0; c < 7 && stage == nfvs::Harmony; ++c)
+        {
             if (kColToHv[c] >= 0 && harmChip(c).contains(pos)) { toggleBool("hv" + juce::String(kColToHv[c] + 1)); return; }
+            if (kColToHv[c] < 0 && harmChip(c).contains(pos)) { toggleBool("hlead"); return; }   // LEAD chip: mute / unmute the main voice
+        }
         if (keyRect().contains(pos))
         {
             juce::PopupMenu m;
@@ -317,7 +326,7 @@ void NFVocalSuiteAudioProcessorEditor::mouseDown(const juce::MouseEvent& e)
 }
 
 // Dragging in the VOICES display sets how far the left / right copies open (distance of the dots from the centre).
-void NFVocalSuiteAudioProcessorEditor::setSpreadFromX(float x)
+void NFVocalSunshineAudioProcessorEditor::setSpreadFromX(float x)
 {
     const auto wp = waveRect();
     const float half = (wp.getWidth() - 40.0f) * 0.5f - 20.0f;
@@ -325,13 +334,13 @@ void NFVocalSuiteAudioProcessorEditor::setSpreadFromX(float x)
     if (auto* prm = proc.apvts.getParameter("vspread")) prm->setValueNotifyingHost(prm->convertTo0to1(v * 100.0f));
 }
 
-void NFVocalSuiteAudioProcessorEditor::mouseDrag(const juce::MouseEvent& e)
+void NFVocalSunshineAudioProcessorEditor::mouseDrag(const juce::MouseEvent& e)
 {
     if (dragBand >= 0) setEqFromPos(dragBand, e.position / scale());
     else if (draggingSpread) setSpreadFromX(e.position.x / scale());
 }
 
-void NFVocalSuiteAudioProcessorEditor::mouseUp(const juce::MouseEvent&)
+void NFVocalSunshineAudioProcessorEditor::mouseUp(const juce::MouseEvent&)
 {
     if (dragBand >= 0)
     {
@@ -345,7 +354,7 @@ void NFVocalSuiteAudioProcessorEditor::mouseUp(const juce::MouseEvent&)
     }
 }
 
-void NFVocalSuiteAudioProcessorEditor::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& w)
+void NFVocalSunshineAudioProcessorEditor::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& w)
 {
     if (stage != nfvs::Eq || !waveRect().contains(e.position / scale())) return;
     int b = eqNodeAt(e.position / scale());
@@ -359,7 +368,7 @@ void NFVocalSuiteAudioProcessorEditor::mouseWheelMove(const juce::MouseEvent& e,
     }
 }
 
-void NFVocalSuiteAudioProcessorEditor::mouseDoubleClick(const juce::MouseEvent& e)
+void NFVocalSunshineAudioProcessorEditor::mouseDoubleClick(const juce::MouseEvent& e)
 {
     if (stage == nfvs::Eq && waveRect().contains(e.position / scale()))
     {
@@ -377,7 +386,7 @@ void NFVocalSuiteAudioProcessorEditor::mouseDoubleClick(const juce::MouseEvent& 
     if (juce::Rectangle<float>(22.0f, 8.0f, 90.0f, 46.0f).contains(e.position / scale())) setSize(kBaseW, kBaseH);
 }
 
-void NFVocalSuiteAudioProcessorEditor::timerCallback()
+void NFVocalSunshineAudioProcessorEditor::timerCallback()
 {
     bypassed = pv("bypass") > 0.5f;
     presetName = proc.apvts.state.getProperty("presetName").toString();
@@ -392,7 +401,7 @@ void NFVocalSuiteAudioProcessorEditor::timerCallback()
 }
 
 // Spectrum of the signal before / after the selected stage (FIX: points 0 -> 1, TONE: points 1 -> 2), log frequency axis, in dB.
-void NFVocalSuiteAudioProcessorEditor::updateSpectrum()
+void NFVocalSunshineAudioProcessorEditor::updateSpectrum()
 {
     const double fs = std::max(8000.0, proc.getSampleRate());
     const int pts[2] = { stage == nfvs::Fix ? 0 : stage == nfvs::Eq ? 1 : 2, stage == nfvs::Fix ? 1 : stage == nfvs::Eq ? 2 : 3 };
@@ -418,7 +427,7 @@ void NFVocalSuiteAudioProcessorEditor::updateSpectrum()
     }
 }
 
-void NFVocalSuiteAudioProcessorEditor::drawSpectrum(juce::Graphics& g, juce::Rectangle<float> wp, juce::Colour accent, bool modOn)
+void NFVocalSunshineAudioProcessorEditor::drawSpectrum(juce::Graphics& g, juce::Rectangle<float> wp, juce::Colour accent, bool modOn)
 {
     const auto r = wp.reduced(14.0f, 12.0f);
     auto xOf = [&](float hz) { return r.getX() + r.getWidth() * std::log(hz / 30.0f) / std::log(18000.0f / 30.0f); };
@@ -450,7 +459,7 @@ void NFVocalSuiteAudioProcessorEditor::drawSpectrum(juce::Graphics& g, juce::Rec
 }
 
 // Voice positions: the original in the centre, the added copies to the left and right (heights follow the live level and the amount).
-void NFVocalSuiteAudioProcessorEditor::drawVoices(juce::Graphics& g, juce::Rectangle<float> wp, juce::Colour accent, bool modOn)
+void NFVocalSunshineAudioProcessorEditor::drawVoices(juce::Graphics& g, juce::Rectangle<float> wp, juce::Colour accent, bool modOn)
 {
     const auto& chain = proc.chainRef();
     const int pos = chain.histWritePos(), cols = nfvs::Chain::kHist;
@@ -489,7 +498,7 @@ void NFVocalSuiteAudioProcessorEditor::drawVoices(juce::Graphics& g, juce::Recta
     g.drawText("WIDTH  " + juce::String(juce::roundToInt(pv("vspread"))) + " %", juce::Rectangle<float>(wp.getRight() - 150.0f, wp.getY() + 6.0f, 136.0f, 14.0f), juce::Justification::centredRight);
 }
 
-void NFVocalSuiteAudioProcessorEditor::paint(juce::Graphics& g)
+void NFVocalSunshineAudioProcessorEditor::paint(juce::Graphics& g)
 {
     g.addTransform(juce::AffineTransform::scale(scale()));
     const float W = (float) kBaseW, H = (float) kBaseH;
@@ -528,7 +537,7 @@ void NFVocalSuiteAudioProcessorEditor::paint(juce::Graphics& g)
     if (logo.isValid())
         g.drawImage(logo, juce::Rectangle<float>(26.0f, 10.0f, 80.0f, 44.0f), juce::RectanglePlacement::xLeft | juce::RectanglePlacement::yMid);
     g.setColour(juce::Colour(0xfff0ede6)); g.setFont(font(19.0f, true));
-    g.drawText("V O C A L   S U I T E", juce::Rectangle<float>(116.0f, 20.0f, 300.0f, 26.0f), juce::Justification::centredLeft);
+    g.drawText("V O C A L   S U N S H I N E", juce::Rectangle<float>(116.0f, 20.0f, 300.0f, 26.0f), juce::Justification::centredLeft);
 
     {
         const auto ks = knobStyleRect();
@@ -536,7 +545,7 @@ void NFVocalSuiteAudioProcessorEditor::paint(juce::Graphics& g)
         static const char* kNames[3] = { "METAL", "SUN", "MOON" };
         g.setColour(kMuted); g.setFont(font(9.0f, true));
         g.drawText("KNOB", ks.withTrimmedLeft(10.0f), juce::Justification::centredLeft);
-        g.setColour(look.style == 1 ? juce::Colour(0xffffb02e) : look.style == 2 ? juce::Colour(0xffcfe0ff) : kText);
+        g.setColour(look.style == 1 ? juce::Colour(0xffffb02e) : look.style == 2 ? juce::Colour(0xfff3e2a8) : kText);
         g.drawText(kNames[look.style], ks.withTrimmedRight(10.0f), juce::Justification::centredRight);
     }
 
@@ -559,7 +568,7 @@ void NFVocalSuiteAudioProcessorEditor::paint(juce::Graphics& g)
     for (int i = 0; i < nfvs::kStages; ++i)
     {
         const auto r = moduleRow(i);
-        const bool on = pv(NFVocalSuiteAudioProcessor::stageId(i, "on")) > 0.5f, sel = i == stage;
+        const bool on = pv(NFVocalSunshineAudioProcessor::stageId(i, "on")) > 0.5f, sel = i == stage;
         const auto col = stageColour(i);
         if (sel)
         {
@@ -750,7 +759,7 @@ void NFVocalSuiteAudioProcessorEditor::paint(juce::Graphics& g)
 }
 
 // HARMONY display: the lead in the middle of a row of interval voices; click a voice to turn it on or off.
-void NFVocalSuiteAudioProcessorEditor::drawHarmony(juce::Graphics& g, juce::Rectangle<float> wp, juce::Colour accent, bool modOn)
+void NFVocalSunshineAudioProcessorEditor::drawHarmony(juce::Graphics& g, juce::Rectangle<float> wp, juce::Colour accent, bool modOn)
 {
     const auto& chain = proc.chainRef();
     const int pos = chain.histWritePos(), cols = nfvs::Chain::kHist;
@@ -767,32 +776,33 @@ void NFVocalSuiteAudioProcessorEditor::drawHarmony(juce::Graphics& g, juce::Rect
     {
         const auto chip = harmChip(c);
         const bool lead = kColToHv[c] < 0;
-        const bool on = lead ? true : pv("hv" + juce::String(kColToHv[c] + 1)) > 0.5f;
+        const bool leadOn = pv("hlead") > 0.5f;
+        const bool on = lead ? leadOn : pv("hv" + juce::String(kColToHv[c] + 1)) > 0.5f;
         const float x = chip.getCentreX();
-        const float h = lead ? std::max(3.0f, full * n) : (on ? std::max(3.0f, full * n * (0.1f + 0.9f * amt) * 0.8f) : 2.0f);
-        const auto col = lead ? juce::Colour(0xffe9ebef) : (on && modOn ? accent : juce::Colour(0xff4a4c52));
+        const float h = lead ? (on ? std::max(3.0f, full * n) : 2.0f) : (on ? std::max(3.0f, full * n * (0.1f + 0.9f * amt) * 0.8f) : 2.0f);
+        const auto col = lead ? (on ? juce::Colour(0xffe9ebef) : juce::Colour(0xff4a4c52)) : (on && modOn ? accent : juce::Colour(0xff4a4c52));
         if (on) { g.setColour(col.withAlpha(0.20f)); g.fillEllipse(x - 9.0f, base - h - 9.0f, 18.0f, 18.0f); }
         g.setColour(col); g.drawLine(x, base, x, base - h, lead ? 2.4f : 2.0f);
         g.fillEllipse(x - 3.5f, base - h - 3.5f, 7.0f, 7.0f);
-        g.setColour(on && !lead ? accent.withAlpha(0.16f) : juce::Colour(0xff131316)); g.fillRoundedRectangle(chip, 13.0f);
-        g.setColour(lead ? kLine : (on ? accent : kLine)); g.drawRoundedRectangle(chip.reduced(0.5f), 13.0f, 1.0f);
+        g.setColour(lead ? (on ? juce::Colour(0x24ffffff) : juce::Colour(0xff131316)) : (on ? accent.withAlpha(0.16f) : juce::Colour(0xff131316))); g.fillRoundedRectangle(chip, 13.0f);
+        g.setColour(lead ? (on ? juce::Colour(0xffe9ebef) : kLine) : (on ? accent : kLine)); g.drawRoundedRectangle(chip.reduced(0.5f), 13.0f, 1.0f);
         g.setFont(font(10.5f, true));
         if (lead)
         {
             const float m = chain.leadMidiNow();
-            g.setColour(kText);
+            g.setColour(on ? kText : kMuted);
             g.drawText(m < 0.0f ? juce::String("LEAD") : "LEAD " + juce::String(kNote[((int) std::lround(m) % 12 + 12) % 12]) + juce::String((int) std::lround(m) / 12 - 1), chip, juce::Justification::centred);
         }
         else { g.setColour(on ? kText : kMuted); g.drawText(kNames[c], chip, juce::Justification::centred); }
     }
     g.setFont(font(9.0f, true)); g.setColour(accent);
     g.drawText("HARMONY", juce::Rectangle<float>(wp.getX() + 14.0f, wp.getY() + 6.0f, 120.0f, 12.0f), juce::Justification::centredLeft);
-    g.setColour(kMuted); g.drawText("Click a voice to turn it on or off. MAJOR / MINOR follow your key; FIXED uses plain semitones.",
+    g.setColour(kMuted); g.drawText("Click a voice (or LEAD) to turn it on or off. MAJOR / MINOR follow your key; FIXED uses plain semitones.",
                                     juce::Rectangle<float>(wp.getX() + 14.0f, wp.getY() + 20.0f, 520.0f, 12.0f), juce::Justification::centredLeft);
 }
 
 // ---- EQ -------------------------------------------------------------------------------------------------------------
-juce::Point<float> NFVocalSuiteAudioProcessorEditor::eqNodePos(int b) const
+juce::Point<float> NFVocalSunshineAudioProcessorEditor::eqNodePos(int b) const
 {
     const auto r = eqArea();
     const juce::String n = "eq" + juce::String(b + 1);
@@ -800,14 +810,14 @@ juce::Point<float> NFVocalSuiteAudioProcessorEditor::eqNodePos(int b) const
     return { r.getX() + r.getWidth() * std::log(f / 30.0f) / std::log(600.0f), r.getCentreY() - g / 15.0f * (r.getHeight() * 0.5f - 6.0f) };
 }
 
-int NFVocalSuiteAudioProcessorEditor::eqNodeAt(juce::Point<float> pos) const
+int NFVocalSunshineAudioProcessorEditor::eqNodeAt(juce::Point<float> pos) const
 {
     int best = -1; float bd = 15.0f;
     for (int b = 0; b < 4; ++b) { const float d = eqNodePos(b).getDistanceFrom(pos); if (d < bd) { bd = d; best = b; } }
     return best;
 }
 
-void NFVocalSuiteAudioProcessorEditor::setEqFromPos(int b, juce::Point<float> pos)
+void NFVocalSunshineAudioProcessorEditor::setEqFromPos(int b, juce::Point<float> pos)
 {
     const auto r = eqArea();
     const juce::String n = "eq" + juce::String(b + 1);
@@ -818,7 +828,7 @@ void NFVocalSuiteAudioProcessorEditor::setEqFromPos(int b, juce::Point<float> po
 }
 
 // The EQ styles are starting curves: they set the four points, which can then be dragged.
-void NFVocalSuiteAudioProcessorEditor::applyEqCurve(int style)
+void NFVocalSunshineAudioProcessorEditor::applyEqCurve(int style)
 {
     //                    f1     g1    f2     g2    q2    f3      g3    q3    f4      g4
     static const float k[3][10] = { {  120.0f, -3.0f, 300.0f, -3.0f, 1.2f, 3000.0f,  1.5f, 1.0f, 10000.0f,  2.0f },     // CLEAN
@@ -839,7 +849,7 @@ static float biquadDb(const nfvs::Biquad& q, float w)
     return 20.0f * std::log10(std::abs(num / den) + 1e-9f);
 }
 
-void NFVocalSuiteAudioProcessorEditor::drawEq(juce::Graphics& g, juce::Rectangle<float> wp, juce::Colour accent, bool modOn)
+void NFVocalSunshineAudioProcessorEditor::drawEq(juce::Graphics& g, juce::Rectangle<float> wp, juce::Colour accent, bool modOn)
 {
     drawSpectrum(g, wp, accent, modOn);   // the signal before / after, in the background
     const auto r = eqArea();

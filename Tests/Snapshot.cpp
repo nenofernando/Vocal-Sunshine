@@ -1,11 +1,11 @@
-// Developer tool: renders NF Vocal Suite's editor to a PNG. Usage: NFVocalSuiteSnapshot out.png [stage 0..6] [scale] [preset]
+// Developer tool: renders NF Vocal Sunshine's editor to a PNG. Usage: NFVocalSunshineSnapshot out.png [stage 0..6] [scale] [preset]
 #include <JuceHeader.h>
 #include "../Source/PluginProcessor.h"
 
 int main(int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI init;
-    NFVocalSuiteAudioProcessor proc;
+    NFVocalSunshineAudioProcessor proc;
     proc.applyPreset(argc > 4 ? std::atoi(argv[4]) : 1);
     proc.apvts.state.setProperty("stage", argc > 2 ? std::atoi(argv[2]) : 0, nullptr);
     proc.apvts.state.setProperty("knobStyle", argc > 5 ? std::atoi(argv[5]) : 0, nullptr);

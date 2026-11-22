@@ -2,10 +2,10 @@
 #include <JuceHeader.h>
 #include "SuiteDSP.h"
 
-class NFVocalSuiteAudioProcessor final : public juce::AudioProcessor
+class NFVocalSunshineAudioProcessor final : public juce::AudioProcessor
 {
 public:
-    NFVocalSuiteAudioProcessor();
+    NFVocalSunshineAudioProcessor();
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
     bool isBusesLayoutSupported(const BusesLayout&) const override;
@@ -35,8 +35,8 @@ private:
     nfvs::Chain chain;
     std::atomic<float>* amtP[nfvs::kStages] = {}; std::atomic<float>* modeP[nfvs::kStages] = {}; std::atomic<float>* onP[nfvs::kStages] = {};
     std::atomic<float>* aP[nfvs::kStages] = {}; std::atomic<float>* bP[nfvs::kStages] = {};
-    std::atomic<float>* outP = nullptr; std::atomic<float>* mixP = nullptr; std::atomic<float>* hvP[6] = {}; std::atomic<float>* hkeyP = nullptr; std::atomic<float>* ctlP[3] = {}; std::atomic<float>* vspreadP = nullptr; std::atomic<float>* eqP[4][3] = {}; std::atomic<float>* lowP = nullptr; std::atomic<float>* highP = nullptr; std::atomic<float>* bypassP = nullptr;
+    std::atomic<float>* outP = nullptr; std::atomic<float>* mixP = nullptr; std::atomic<float>* hvP[6] = {}; std::atomic<float>* hkeyP = nullptr; std::atomic<float>* hleadP = nullptr; std::atomic<float>* ctlP[3] = {}; std::atomic<float>* vspreadP = nullptr; std::atomic<float>* eqP[4][3] = {}; std::atomic<float>* lowP = nullptr; std::atomic<float>* highP = nullptr; std::atomic<float>* bypassP = nullptr;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> bypassMix;
     std::vector<float> scratchIn[2];
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NFVocalSuiteAudioProcessor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NFVocalSunshineAudioProcessor)
 };

@@ -44,7 +44,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI init;
 
     std::printf("Presets\n");
-    NFVocalSuiteAudioProcessor proc;
+    NFVocalSunshineAudioProcessor proc;
     proc.setPlayConfigDetails(2, 2, kFs, 480);
     proc.prepareToPlay(kFs, 480);
     juce::Random rng(7);
@@ -194,6 +194,10 @@ int main()
         };
         auto hp = flat(); hp.amt[nfvs::Harmony] = 100; hp.mode[nfvs::Harmony] = 2; hp.a[nfvs::Harmony] = false; hp.b[nfvs::Harmony] = false;
         float lead = -1.0f;
+        { auto lo = hp; lo.hv[3] = true; lo.hLead = false;                   // lead off, +5th on: only the interval remains
+          check(goertzel(lo, 220.0, 220.0, nullptr) < goertzel(lo, 220.0, 329.63, nullptr) - 12.0, "LEAD off leaves only the interval voice");
+          auto none = hp; none.hLead = false;                                  // lead off but no interval on: the voice must not disappear
+          check(goertzel(none, 220.0, 220.0, nullptr) > -25.0, "LEAD off with no interval voice keeps the lead"); }
         auto dn = hp; dn.hv[0] = true;                         // -8ve: 110 Hz is not in the test signal
         const double with = goertzel(dn, 220.0, 110.0, &lead), without = goertzel(flat(), 220.0, 110.0, nullptr);
         check(std::abs(lead - 57.0f) < 0.6f, "pitch tracker reads 220 Hz as A3 (MIDI 57)");
