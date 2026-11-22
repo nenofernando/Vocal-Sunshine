@@ -20,6 +20,7 @@ struct Params
     bool on[kStages] = {}, a[kStages] = {}, b[kStages] = {};
     float outputDb = 0.0f, mix = 100.0f;
     float eqF[4] = { 120.0f, 400.0f, 3000.0f, 10000.0f }, eqG[4] = {}, eqQ[4] = { 1.0f, 1.0f, 1.0f, 1.0f };   // EQ: low shelf, 2 bells, high shelf
+    float hFormant = 0.0f;            // HARMONY: formant shift in semitones (0 = the natural voice colour at any pitch)
     bool hNotes = true;               // HARMONY AUTO: key that best fits the sung notes (true, better for harmonies) or the song key read like Mixa (false)
     bool hAuto = true;                // HARMONY: learn the key from the voice (same profiles and confidence as Mixa's key reading)
     bool hLead = true;                // HARMONY: false = mute the lead and keep only the interval voices
@@ -168,9 +169,10 @@ public:
         sibHp.highPass(fs, 6000.0, 0.707);
         const double bf[3] = { 320.0, 1000.0, 3400.0 }, bq[3] = { 1.4, 1.8, 1.6 };
         for (int b = 0; b < 3; ++b) band[b].bandPass(fs, bf[b], bq[b]);
-        vLen = (int) (fs * 0.08) + 4; vBuf.assign((size_t) vLen, 0.0f);
+        vLen = (int) (fs * 0.25) + 4; vBuf.assign((size_t) vLen, 0.0f);
+        for (int i = 0; i <= 1024; ++i) hann[i] = 0.5f - 0.5f * std::cos(2.0f * juce::MathConstants<float>::pi * (float) i / 1024.0f);
         vHp.highPass(fs, 250.0, 0.707); vLp.lowPass(fs, 5000.0, 0.707); hLp.lowPass(fs, 5000.0, 0.707);
-        trkH.prepare(fs); prepareKeyLearning(); hLen = 0.03f * (float) fs;
+        trkH.prepare(fs); prepareKeyLearning(); hTcur = (float) fs / 150.0f;
         eqKey.fill(-1000.0f);
         exHp.highPass(fs, 4000.0, 0.707);
         thumpLp.lowPass(fs, 140.0, 0.707);
@@ -201,7 +203,8 @@ public:
         for (int b = 0; b < 3; ++b) { envB[b] = 0; avgRel[b] = -18.0f; gBand[b] = 1.0f; }
         dcX[0] = dcX[1] = dcY[0] = dcY[1] = 0;
         std::fill(vBuf.begin(), vBuf.end(), 0.0f); vw = 0; lfo1 = 0; lfo2 = 1.3f;
-        for (int v = 0; v < 6; ++v) { hPhase[v] = 0.0f; hSemi[v] = 0.0f; hPrev[v] = false; }
+        for (int v = 0; v < 6; ++v) { hVoice[v] = HVoice(); hSemi[v] = 0.0f; hPrev[v] = false; }
+        vAbs = 0;
         trkH.reset(); leadOut.store(-1.0f); leadG = 1.0f; resetKeyLearning(); keyFramesSeen = 0;
         colCount = 0; for (auto& v : colPk) v = 0;
     }
@@ -297,19 +300,15 @@ public:
             const bool useAuto = p.hAuto && autoK >= 0;                        // FIXED keeps plain semitones, otherwise the detected major / minor wins
             const int effKey = useAuto ? autoK % 12 : p.hkey, effMode = useAuto && mHar != 2 ? (autoK >= 12 ? 1 : 0) : mHar;
             float hL[6], hR[6], hRatio[6];
-            if (trkH.voiced && trkH.period > 1.0f)
-            {   // the two crossfaded grains are half a grain apart: make that a whole number of pitch periods so they add in phase
-                int k = 2 * std::max(1, (int) std::lround(0.03f * (float) fs / (2.0f * trkH.period)));
-                while (k > 2 && (float) k * trkH.period > 0.045f * (float) fs) k -= 2;
-                hLen += ((float) k * trkH.period - hLen) * 0.1f;
-            }
+            if (trkH.voiced && trkH.period > 1.0f) hTcur += (juce::jlimit((float) fs / 900.0f, (float) fs / 60.0f, trkH.period) - hTcur) * 0.3f;   // pitch period used by the grains
+            const float hFr = std::pow(2.0f, juce::jlimit(-12.0f, 12.0f, p.hFormant) / 12.0f);   // formant ratio, 1 = natural
             for (int v = 0; v < 6; ++v)
             {
                 static const float kPan[6] = { 0.0f, -0.55f, 0.55f, -0.85f, 0.85f, 0.0f };
                 const float ang = ((hSpread ? kPan[v] : 0.0f) + 1.0f) * juce::MathConstants<float>::pi * 0.25f;
                 hL[v] = std::cos(ang); hR[v] = std::sin(ang);
-                const float target = harmonyShift(v, effMode, effKey);
-                if (hAct[v] && !hPrev[v]) hSemi[v] = target; else hSemi[v] += (target - hSemi[v]) * 0.3f;
+                const float target = trkH.voiced ? harmonyShift(v, effMode, effKey) : 0.0f;   // unvoiced sounds pass through unshifted
+                if (hAct[v] && !hPrev[v]) { hSemi[v] = target; hVoice[v] = HVoice(); } else hSemi[v] += (target - hSemi[v]) * 0.3f;
                 hPrev[v] = hAct[v];
                 hRatio[v] = std::pow(2.0f, hSemi[v] / 12.0f);
             }
@@ -552,17 +551,7 @@ public:
                     for (int v = 0; v < 6; ++v)
                         if (hAct[v])
                         {
-                            const float ph = hPhase[v], ph2 = ph >= 0.5f ? ph - 0.5f : ph + 0.5f;
-                            const float g1 = 0.5f - 0.5f * std::cos(2.0f * juce::MathConstants<float>::pi * ph);
-                            auto tap = [&](float d) {
-                                float rp = (float) vw - d; while (rp < 0.0f) rp += (float) vLen;
-                                const int i0 = (int) rp, i1 = (i0 + 1) % vLen; const float fr = rp - (float) i0;
-                                return vBuf[(size_t) i0] * (1.0f - fr) + vBuf[(size_t) i1] * fr;
-                            };
-                            const float y = tap(ph * hLen) * g1 + tap(ph2 * hLen) * (1.0f - g1);
-                            float np = ph + (1.0f - hRatio[v]) / hLen;
-                            np -= std::floor(np);
-                            hPhase[v] = np;
+                            const float y = renderHarmonyVoice(hVoice[v], hRatio[v], hFr);
                             wl += y * hL[v]; wr += y * hR[v];
                         }
                     if (hSoft) { wl = hLp.process(0, wl); wr = hLp.process(1, wr); }
@@ -570,6 +559,7 @@ public:
                 }
                 else { x[0] *= leadG; x[1] *= leadG; }
                 if (++vw >= vLen) vw = 0;
+                ++vAbs;
                 stageFx(Harmony, x, stIn);
                 tapPk[9][i] = std::max(std::abs(x[0]), std::abs(x[1]));
 
@@ -737,6 +727,59 @@ public:
     float infoAt(int s) const { return info[s].load(std::memory_order_relaxed); }
 
 private:
+    // One harmony voice: pitch-synchronous grain synthesis (PSOLA style). Grains of two output periods are laid down every output period
+    // (T / pitchRatio); each one reads the voice from a position that is a whole number of the voice's own periods away from the previous one,
+    // so neighbouring grains add in phase and the vocal-tract colour is untouched by the pitch change. The formant ratio only changes the speed
+    // at which a grain is read (the grain content is resampled), which moves the formants without touching the pitch.
+    struct HGrain { float rel = 0.0f, phase = 0.0f, step = 1.0f, winInc = 0.0f, gain = 1.0f; bool on = false; };
+    struct HVoice { HGrain g[4]; float untilNext = 0.0f; double srcPrev = 0.0, nAcc = 0.0; bool anchored = false; };
+
+    // ratio = pitch ratio, rho = wanted formant ratio (1 = natural). The synthesis only repeats / skips periods well when the part of the change
+    // that is "pure pitch" (q = ratio / formant speed) stays between 0.8 and 1.6, so beyond that the formants follow the pitch partially.
+    float renderHarmonyVoice(HVoice& V, float ratio, float rho)
+    {
+        const float T = hTcur, r = std::max(0.25f, ratio);
+        V.untilNext -= 1.0f;
+        if (V.untilNext <= 0.0f)
+        {
+            const float q = juce::jlimit(0.8f, 1.6f, r / std::max(0.25f, rho));
+            const float speed = r / q;                                  // resampling speed of the grain content = the formant ratio actually used
+            const float tSyn = juce::jlimit((float) fs / 1500.0f, (float) fs / 40.0f, T / r), Lg = juce::jlimit(8.0f, (float) vLen * 0.4f, 2.0f * T / speed);
+            V.untilNext += tSyn;
+            const double lagMin = 1.0 + (double) Lg * ((double) std::max(speed - 1.0f, 0.0f) - 0.5 * (double) speed);   // every sample a grain reads stays in the past
+            const double lagLo = lagMin + 0.5 * (double) T, lagHi = lagLo + (double) T;
+            if (!V.anchored) { V.srcPrev = (double) vAbs - (lagMin + (double) T); V.nAcc = 0.0; V.anchored = true; }
+            else
+            {
+                const double nPrev = std::floor(V.nAcc); V.nAcc += 1.0 / (double) r;
+                V.srcPrev += (std::floor(V.nAcc) - nPrev) * (double) T;           // whole periods: repeat or skip a period to change the pitch
+            }
+            const double lag = (double) vAbs - V.srcPrev;
+            if (lag < lagLo) V.srcPrev -= std::ceil((lagLo - lag) / (double) T) * (double) T;
+            else if (lag > lagHi) V.srcPrev += std::floor((lag - lagLo) / (double) T) * (double) T;
+            for (auto& g : V.g)
+                if (!g.on)
+                {
+                    g.on = true; g.phase = 0.0f; g.winInc = 1.0f / Lg; g.step = speed; g.gain = 1.0f / q;   // overlapping Hann windows add up to about q
+                    g.rel = (float) (V.srcPrev - 0.5 * (double) Lg * (double) speed - (double) vAbs);
+                    break;
+                }
+        }
+        float y = 0.0f;
+        for (auto& g : V.g)
+            if (g.on)
+            {
+                float pos = std::fmod((float) vw + g.rel, (float) vLen); if (pos < 0.0f) pos += (float) vLen;
+                const int i0 = (int) pos, i1 = (i0 + 1) % vLen; const float f2 = pos - (float) i0;
+                const float smp = vBuf[(size_t) i0] * (1.0f - f2) + vBuf[(size_t) i1] * f2;
+                const float wp = juce::jlimit(0.0f, 1023.99f, g.phase * 1024.0f); const int wi = (int) wp;
+                y += g.gain * smp * (hann[wi] + (hann[wi + 1] - hann[wi]) * (wp - (float) wi));
+                g.rel += g.step - 1.0f; g.phase += g.winInc;
+                if (g.phase >= 1.0f) g.on = false;
+            }
+        return y;
+    }
+
     // Semitone shift of harmony voice v (0..5 = -8ve, -3rd, +3rd, +5th, +6th, +8ve). Scale modes follow the detected lead note inside the key.
     float harmonyShift(int v, int mode, int key) const
     {
@@ -909,7 +952,9 @@ private:
     std::vector<float> vBuf;
     float lfo1 = 0, lfo2 = 1.3f;
     Biquad hLp;
-    float hPhase[6] = {}, hSemi[6] = {}, hLen = 1440.0f;
+    HVoice hVoice[6];
+    float hSemi[6] = {}, hTcur = 320.0f, hann[1026] = {};
+    long long vAbs = 0;
     bool hPrev[6] = {};
     PitchTracker trkH;
     static constexpr int kKeyN = 4096;

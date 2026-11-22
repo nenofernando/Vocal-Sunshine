@@ -277,6 +277,45 @@ int main()
         check(std::abs(dbOf(run(off, 1.0, tone(50.0)).rms) - dbOf(run(flat(), 1.0, tone(50.0)).rms)) < 0.05, "EQ amount 0 is transparent");
     }
 
+    std::printf("HARMONY FORMANT: the vocal-tract colour stays put when only the pitch moves\n");
+    {
+        // a voice-like source: 150 Hz pulse train through a resonance at 1 kHz
+        auto bandRatio = [&](float formantSt) {
+            nfvs::Chain ch; ch.prepare(kFs);
+            auto p = flat(); p.amt[nfvs::Harmony] = 100; p.mode[nfvs::Harmony] = 2; p.hv[3] = true; p.hLead = false; p.hFormant = formantSt;
+            p.a[nfvs::Harmony] = false; p.b[nfvs::Harmony] = false;                              // +5th = +7 semitones, no spread, no soften
+            const double f0 = 150.0, r = std::exp(-juce::MathConstants<double>::pi * 150.0 / kFs), a1 = 2.0 * r * std::cos(tw * 1000.0 / kFs), a2 = -r * r;
+            double ph = 0.0, y1 = 0.0, y2 = 0.0;
+            std::vector<float> l(480), rr(480); std::vector<double> sig;
+            for (long blk = 0; blk < 250; ++blk)
+            {
+                for (int i = 0; i < 480; ++i)
+                {
+                    ph += f0 / kFs; double x = 0.0; if (ph >= 1.0) { ph -= 1.0; x = 1.0; }
+                    const double y = x + a1 * y1 + a2 * y2; y2 = y1; y1 = y;
+                    l[(size_t) i] = rr[(size_t) i] = (float) (0.004 * y);
+                }
+                ch.process(l.data(), rr.data(), 480, p);
+                if (blk >= 100) for (int i = 0; i < 480; ++i) sig.push_back(l[(size_t) i]);
+            }
+            const double f0o = f0 * std::pow(2.0, 7.0 / 12.0);
+            auto bandPow = [&](double lo, double hi) {
+                double sum = 0.0;
+                for (int k = 1; k < 40; ++k)
+                {
+                    const double f = k * f0o; if (f < lo || f > hi) continue;
+                    double re = 0, im = 0; for (size_t n = 0; n < sig.size(); ++n) { re += sig[n] * std::cos(tw * f * (double) n / kFs); im += sig[n] * std::sin(tw * f * (double) n / kFs); }
+                    sum += (re * re + im * im) / (double) (sig.size() * sig.size());
+                }
+                return sum + 1e-18;
+            };
+            return 10.0 * std::log10(bandPow(850.0, 1250.0) / bandPow(1350.0, 1800.0));   // low band (the original formant) over the band where a +7 st formant would be
+        };
+        const double natural = bandRatio(0.0f), follows = bandRatio(7.0f);
+        std::printf("   low/high band ratio: formant 0 -> %.1f dB, formant +7 st (follows the pitch) -> %.1f dB\n", natural, follows);
+        check(natural > follows + 6.0, "FORMANT 0 keeps the resonance near 1 kHz; +7 st moves it up with the pitch");
+    }
+
     std::printf("HARMONY AUTO KEY: learns the key from sung notes\n");
     {
         auto melody = [&](const std::vector<int>& notes, bool autoOn, bool resetAfter, float* conf, float* secs) {

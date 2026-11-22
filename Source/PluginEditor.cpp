@@ -129,7 +129,9 @@ NFVocalSunshineAudioProcessorEditor::NFVocalSunshineAudioProcessorEditor(NFVocal
     setup(lowKnob, smallLook, 200);
     setup(highKnob, smallLook, 200);
     setup(atkKnob, smallLook, 200); setup(relKnob, smallLook, 200); setup(ratKnob, smallLook, 200);
-    setup(deFreqKnob, smallLook, 200); setup(deMaxKnob, smallLook, 200); setup(lofiKnob, smallLook, 200); setup(fbKnob, smallLook, 200);
+    setup(deFreqKnob, smallLook, 200); setup(deMaxKnob, smallLook, 200); setup(lofiKnob, smallLook, 200); setup(fbKnob, smallLook, 200); setup(formantKnob, smallLook, 200);
+    formantKnob.setDoubleClickReturnValue(true, 0.0);
+    formantAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(proc.apvts, "hformant", formantKnob);
     fbKnob.setDoubleClickReturnValue(true, 38.0);
     fbAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(proc.apvts, "dfb", fbKnob);
     lofiKnob.setDoubleClickReturnValue(true, 0.0);
@@ -179,7 +181,7 @@ NFVocalSunshineAudioProcessorEditor::NFVocalSunshineAudioProcessorEditor(NFVocal
 
 NFVocalSunshineAudioProcessorEditor::~NFVocalSunshineAudioProcessorEditor()
 {
-    for (auto* s : { &knob, &outKnob, &mixKnob, &lowKnob, &highKnob, &atkKnob, &relKnob, &ratKnob, &deFreqKnob, &deMaxKnob, &lofiKnob, &fbKnob }) s->setLookAndFeel(nullptr);
+    for (auto* s : { &knob, &outKnob, &mixKnob, &lowKnob, &highKnob, &atkKnob, &relKnob, &ratKnob, &deFreqKnob, &deMaxKnob, &lofiKnob, &fbKnob, &formantKnob }) s->setLookAndFeel(nullptr);
 }
 
 // Slider attachments install their own text functions, so ours are set after every attach: real units on every knob.
@@ -198,6 +200,7 @@ void NFVocalSunshineAudioProcessorEditor::setupValueTexts()
     highKnob.textFromValueFunction = [](double v) { return v > 19900.0 ? juce::String("Off") : (v >= 1000.0 ? juce::String(v / 1000.0, 1) + " kHz" : juce::String(juce::roundToInt(v)) + " Hz"); };
     outKnob.textFromValueFunction = [](double v) { return (v > 0.04 ? "+" : "") + juce::String(v, 1) + " dB"; };
     mixKnob.textFromValueFunction = [](double v) { return juce::String(juce::roundToInt(v)) + " %"; };
+    formantKnob.textFromValueFunction = [](double v) { return std::abs(v) < 0.05 ? juce::String("Natural") : (v > 0 ? "+" : "") + juce::String(v, 1) + " st"; };
     fbKnob.textFromValueFunction = [](double v) { return juce::String(juce::roundToInt(v)) + " %"; };
     lofiKnob.textFromValueFunction = [](double v) { return v < 0.5 ? juce::String("Off") : juce::String(juce::roundToInt(v)) + " %"; };
     deFreqKnob.textFromValueFunction = [](double v) { return juce::String(v / 1000.0, 1) + " kHz"; };
@@ -231,6 +234,7 @@ void NFVocalSunshineAudioProcessorEditor::selectStage(int s)
     for (auto* k : { &atkKnob, &relKnob, &ratKnob }) k->setVisible(s == nfvs::Control);
     for (auto* k : { &deFreqKnob, &deMaxKnob }) k->setVisible(s == nfvs::DeEss);
     lofiKnob.setVisible(s == nfvs::Delay); fbKnob.setVisible(s == nfvs::Delay);
+    formantKnob.setVisible(s == nfvs::Harmony);
     repaint();
 }
 
@@ -244,6 +248,7 @@ void NFVocalSunshineAudioProcessorEditor::resized()
     place(atkKnob, 586.0f, 312.0f, 42.0f);
     place(relKnob, 666.0f, 312.0f, 42.0f);
     place(ratKnob, 746.0f, 312.0f, 42.0f);
+    place(formantKnob, 490.0f, 430.0f, 40.0f);
     place(fbKnob, 626.0f, 312.0f, 42.0f);
     place(lofiKnob, 706.0f, 312.0f, 42.0f);
     place(deFreqKnob, 626.0f, 312.0f, 42.0f);
@@ -278,7 +283,7 @@ void NFVocalSunshineAudioProcessorEditor::showPresetMenu()
 
 void NFVocalSunshineAudioProcessorEditor::leaveAutoKey()
 {
-    const int k = proc.chainRef().autoKeyNow();
+    const int k = proc.chainRef().autoKeyFor(useNotes());
     if (k >= 0)
     {
         setChoice("hkey", k % 12);
@@ -286,6 +291,11 @@ void NFVocalSunshineAudioProcessorEditor::leaveAutoKey()
         if (juce::roundToInt(pv(modeId)) != 2) setChoice(modeId, k >= 12 ? 1 : 0);
     }
     if (pv("hauto") > 0.5f) toggleBool("hauto");
+}
+
+void NFVocalSunshineAudioProcessorEditor::setBoolParam(const juce::String& id, bool v)
+{
+    if (auto* prm = proc.apvts.getParameter(id)) { prm->beginChangeGesture(); prm->setValueNotifyingHost(v ? 1.0f : 0.0f); prm->endChangeGesture(); }
 }
 
 void NFVocalSunshineAudioProcessorEditor::toggleBool(const juce::String& id)
@@ -355,6 +365,8 @@ void NFVocalSunshineAudioProcessorEditor::mouseDown(const juce::MouseEvent& e)
         }
         if (autoRect().contains(pos)) { if (pv("hauto") > 0.5f) leaveAutoKey(); else toggleBool("hauto"); return; }
         if (resetRect().contains(pos)) { proc.resetAutoKey(); return; }
+        if (notesRect().contains(pos)) { setBoolParam("hnotes", true); if (pv("hauto") < 0.5f) setBoolParam("hauto", true); return; }
+        if (songRect().contains(pos)) { setBoolParam("hnotes", false); if (pv("hauto") < 0.5f) setBoolParam("hauto", true); return; }
         if (keyRect().contains(pos))
         {
             if (pv("hauto") > 0.5f) leaveAutoKey();   // choosing by hand: start from what AUTO found
@@ -727,7 +739,7 @@ void NFVocalSunshineAudioProcessorEditor::paint(juce::Graphics& g)
     // ---- STYLE: segmented selector
     recess(juce::Rectangle<float>(180.0f, 224.0f, 366.0f, 34.0f), 7.0f);
     int mode = juce::jlimit(0, 2, juce::roundToInt(pv(sid("mode"))));
-    if (stage == nfvs::Harmony && pv("hauto") > 0.5f && chain.autoKeyNow() >= 0 && mode != 2) mode = chain.autoKeyNow() >= 12 ? 1 : 0;   // AUTO shows the scale it found
+    if (stage == nfvs::Harmony && pv("hauto") > 0.5f && chain.autoKeyFor(useNotes()) >= 0 && mode != 2) mode = chain.autoKeyFor(useNotes()) >= 12 ? 1 : 0;   // AUTO shows the scale it found
     static const char* kDelayDiv[6] = { "1/16", "1/8", "1/4", "1/4.", "1/2", "1 BAR" };
     if (stage == nfvs::Delay) mode = juce::jlimit(0, 5, juce::roundToInt(pv("dtime")));
     for (int i = 0; i < segCount(); ++i)
@@ -804,6 +816,15 @@ void NFVocalSunshineAudioProcessorEditor::paint(juce::Graphics& g)
                    juce::Rectangle<float>(lcd.getX(), lcd.getBottom() - 17.0f, lcd.getWidth(), 12.0f), juce::Justification::centred);
     }
 
+    if (stage == nfvs::Harmony)   // FORMANT knob under the LCD
+    {
+        const float cx = (float) formantKnob.getBounds().getCentreX() / scale();
+        g.setColour(kText); g.setFont(font(10.0f, true));
+        g.drawText(formantKnob.getTextFromValue(formantKnob.getValue()), juce::Rectangle<float>(cx - 40.0f, 404.0f, 80.0f, 14.0f), juce::Justification::centred);
+        g.setColour(kMuted); g.setFont(font(8.5f, true));
+        g.drawText("FORMANT", juce::Rectangle<float>(cx - 34.0f, 452.0f, 68.0f, 12.0f), juce::Justification::centred);
+    }
+
     // ---- right area: compressor trims, harmony key, or what the module does
     if (stage == nfvs::Control)
     {
@@ -845,7 +866,7 @@ void NFVocalSunshineAudioProcessorEditor::paint(juce::Graphics& g)
     {
         static const char* kKeys[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
         const bool autoOn = pv("hauto") > 0.5f;
-        const int ak = chain.autoKeyNow();
+        const int ak = chain.autoKeyFor(useNotes());
         const bool known = autoOn && ak >= 0;
         // AUTO button
         {
@@ -874,20 +895,18 @@ void NFVocalSunshineAudioProcessorEditor::paint(juce::Graphics& g)
             g.setColour(autoOn ? kText : juce::Colour(0xff55575e)); g.setFont(font(9.0f, true));
             g.drawText("RESET", r, juce::Justification::centred);
         }
-        // status line
+        // which reading AUTO uses: the sung notes (default, best for harmonies) or the whole song like Mixa
         {
-            g.setFont(font(10.0f, true));
-            juce::String txt;
-            if (!autoOn) txt = "Key chosen by hand";
-            else if (!known) txt = "LISTENING...  " + juce::String(juce::jmin(chain.autoSecondsNow(), 6.0f), 1) + " / 6 s of singing";
-            else txt = juce::String(kKeys[ak % 12]) + (ak >= 12 ? " MINOR" : " MAJOR") + "   -   " + juce::String(juce::roundToInt(chain.autoConfidenceNow() * 100.0f)) + " % sure";
-            g.setColour(known ? accent : kMuted);
-            g.drawText(txt, statusRect().withHeight(16.0f), juce::Justification::centred);
-            const int alt = known ? chain.autoAlternativeNow() : -1;
-            if (alt >= 0)   // two keys are almost tied: say so
+            const bool notes = useNotes();
+            const std::pair<juce::Rectangle<float>, const char*> seg[] = { { notesRect(), "NOTES" }, { songRect(), "SONG" } };
+            recess(juce::Rectangle<float>(552.0f, 330.0f, 240.0f, 28.0f), 6.0f);
+            for (int i = 0; i < 2; ++i)
             {
-                g.setFont(font(8.5f)); g.setColour(kMuted);
-                g.drawText(juce::String("also close: ") + kKeys[alt % 12] + (alt >= 12 ? " MINOR" : " MAJOR"), statusRect().withTrimmedTop(15.0f), juce::Justification::centred);
+                const bool sel = (i == 0) == notes && autoOn;
+                const auto r = seg[i].first.reduced(2.0f, 2.0f);
+                if (sel) { g.setGradientFill(juce::ColourGradient(accent.brighter(0.2f), 0, r.getY(), accent.darker(0.35f), 0, r.getBottom(), false)); g.fillRoundedRectangle(r, 4.0f); }
+                g.setColour(sel ? juce::Colour(0xff0f1012) : kMuted); g.setFont(font(9.5f, true));
+                g.drawText(seg[i].second, r, juce::Justification::centred);
             }
         }
     }
@@ -961,6 +980,21 @@ void NFVocalSunshineAudioProcessorEditor::drawHarmony(juce::Graphics& g, juce::R
     }
     g.setFont(font(9.0f, true)); g.setColour(accent);
     g.drawText("HARMONY", juce::Rectangle<float>(wp.getX() + 14.0f, wp.getY() + 6.0f, 120.0f, 12.0f), juce::Justification::centredLeft);
+    {   // what AUTO has heard
+        static const char* kKeys[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+        const bool notes = useNotes(), autoOn = pv("hauto") > 0.5f;
+        const int ak = chain.autoKeyFor(notes), alt = chain.autoAltFor(notes);
+        juce::String txt;
+        if (!autoOn) txt = "KEY BY HAND";
+        else if (ak < 0) txt = juce::String(notes ? "NOTES" : "SONG") + ": listening...  " + juce::String(juce::jmin(chain.autoSecFor(notes), notes ? 4.0f : 6.0f), 1) + " / " + (notes ? "4" : "6") + " s of singing";
+        else
+        {
+            txt = juce::String(notes ? "NOTES" : "SONG") + ":  " + kKeys[ak % 12] + (ak >= 12 ? " MINOR" : " MAJOR") + "  -  " + juce::String(juce::roundToInt(chain.autoConfFor(notes) * 100.0f)) + " % sure";
+            if (alt >= 0) txt += "   (also close: " + juce::String(kKeys[alt % 12]) + (alt >= 12 ? " MINOR)" : " MAJOR)");
+        }
+        g.setColour(ak >= 0 && autoOn ? accent : kMuted); g.setFont(font(10.0f, true));
+        g.drawText(txt, juce::Rectangle<float>(wp.getRight() - 420.0f, wp.getY() + 6.0f, 406.0f, 14.0f), juce::Justification::centredRight);
+    }
     g.setColour(kMuted); g.drawText("Click a voice (or LEAD) to turn it on or off. MAJOR / MINOR follow your key; FIXED uses plain semitones.",
                                     juce::Rectangle<float>(wp.getX() + 14.0f, wp.getY() + 20.0f, 520.0f, 12.0f), juce::Justification::centredLeft);
 }
