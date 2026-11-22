@@ -367,8 +367,8 @@ void NFVocalSunshineAudioProcessorEditor::mouseDown(const juce::MouseEvent& e)
             return;
         }
     }
-    for (int i = 0; i < 3; ++i)
-        if (modeRect(i).contains(pos)) { if (stage == nfvs::Harmony && pv("hauto") > 0.5f) leaveAutoKey(); setChoice(sid("mode"), i); if (stage == nfvs::Eq) applyEqCurve(i); return; }
+    for (int i = 0; i < segCount(); ++i)
+        if (modeRect(i).contains(pos)) { if (stage == nfvs::Delay) { setChoice("dtime", i); return; } if (stage == nfvs::Harmony && pv("hauto") > 0.5f) leaveAutoKey(); setChoice(sid("mode"), i); if (stage == nfvs::Eq) applyEqCurve(i); return; }
     if (switchRow(1).contains(pos)) { toggleBool(sid("a")); return; }
     if (switchRow(2).contains(pos)) { toggleBool(sid("b")); return; }
 }
@@ -728,7 +728,9 @@ void NFVocalSunshineAudioProcessorEditor::paint(juce::Graphics& g)
     recess(juce::Rectangle<float>(180.0f, 224.0f, 366.0f, 34.0f), 7.0f);
     int mode = juce::jlimit(0, 2, juce::roundToInt(pv(sid("mode"))));
     if (stage == nfvs::Harmony && pv("hauto") > 0.5f && chain.autoKeyNow() >= 0 && mode != 2) mode = chain.autoKeyNow() >= 12 ? 1 : 0;   // AUTO shows the scale it found
-    for (int i = 0; i < 3; ++i)
+    static const char* kDelayDiv[6] = { "1/16", "1/8", "1/4", "1/4.", "1/2", "1 BAR" };
+    if (stage == nfvs::Delay) mode = juce::jlimit(0, 5, juce::roundToInt(pv("dtime")));
+    for (int i = 0; i < segCount(); ++i)
     {
         const auto r = modeRect(i);
         const bool sel = stage == nfvs::Eq ? eqMatchesCurve(i) : i == mode;   // EQ styles light up while the four points still match that curve
@@ -739,7 +741,7 @@ void NFVocalSunshineAudioProcessorEditor::paint(juce::Graphics& g)
             g.setColour(juce::Colour(0x55ffffff)); g.drawRoundedRectangle(r.reduced(0.5f), 5.0f, 1.0f);
         }
         g.setColour(sel ? juce::Colour(0xff0f1012) : kMuted); g.setFont(font(11.0f, true));
-        g.drawText(si.modes[i], r, juce::Justification::centred);
+        g.drawText(stage == nfvs::Delay ? kDelayDiv[i] : si.modes[i], r, juce::Justification::centred);
     }
 
     // ---- options A / B: push buttons with an LED

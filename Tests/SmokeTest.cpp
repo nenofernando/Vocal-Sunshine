@@ -151,14 +151,33 @@ int main()
 
     std::printf("DELAY: echo at the tempo\n");
     {
-        auto p = flat(); p.amt[nfvs::Delay] = 100; p.mode[nfvs::Delay] = 1;   // 1/4 note at 120 bpm = 0.5 s
+        auto p = flat(); p.amt[nfvs::Delay] = 100; p.dTime = 2;   // 1/4 note at 120 bpm = 0.5 s
         auto burst = [&](double t) { return t < 0.1 ? (float) (0.5 * std::sin(tw * 400 * t)) : 0.0f; };
         const auto a = run(flat(), 1.2, burst, 0.45), b = run(p, 1.2, burst, 0.45);
         check(b.rms > a.rms * 3.0 + 1e-6, "echo is audible at 0.5 s");
     }
+    std::printf("DELAY TIME: 1/2 note (and the other divisions)\n");
+    {
+        auto burst = [&](double t) { return t < 0.05 ? (float) (0.5 * std::sin(tw * 400 * t)) : 0.0f; };
+        auto echoAt = [&](int div, double sec) {   // level of a 0.1 s window around `sec`, feedback 0 so there is a single echo
+            nfvs::Chain ch; ch.prepare(kFs); auto p = flat(); p.amt[nfvs::Delay] = 100; p.dTime = div; p.dFeedback = 0.0f; p.a[nfvs::Delay] = false; p.b[nfvs::Delay] = false;
+            std::vector<float> l(480), r(480); double sum = 0; long cnt = 0;
+            for (long blk = 0; blk < (long) (2.4 * kFs / 480); ++blk)
+            {
+                for (int i = 0; i < 480; ++i) l[(size_t) i] = r[(size_t) i] = burst((double) (blk * 480 + i) / kFs);
+                ch.process(l.data(), r.data(), 480, p);
+                for (int i = 0; i < 480; ++i) { const double t = (double) (blk * 480 + i) / kFs; if (t > sec && t < sec + 0.12) { sum += (double) l[(size_t) i] * l[(size_t) i]; ++cnt; } }
+            }
+            return std::sqrt(sum / (double) std::max(1L, cnt));
+        };
+        // 120 bpm: 1/16 = 0.125 s, 1/8 = 0.25 s, 1/4 = 0.5 s, 1/2 = 1.0 s, 1 bar = 2.0 s (the echo itself lasts 0.05 s, so look just after it)
+        check(echoAt(4, 1.0) > 20.0 * echoAt(4, 0.5), "1/2 note: the echo arrives at 1.0 s, not at 0.5 s");
+        check(echoAt(5, 2.0) > 20.0 * echoAt(5, 1.0), "1 bar: the echo arrives at 2.0 s");
+        check(echoAt(0, 0.125) > 20.0 * echoAt(0, 0.5), "1/16: the echo arrives at 0.125 s");
+    }
     std::printf("DELAY FEEDBACK: more repeats\n");
     {
-        auto p = flat(); p.amt[nfvs::Delay] = 100; p.mode[nfvs::Delay] = 0; p.a[nfvs::Delay] = false; p.b[nfvs::Delay] = false;   // 1/8 note = 0.25 s
+        auto p = flat(); p.amt[nfvs::Delay] = 100; p.dTime = 1; p.a[nfvs::Delay] = false; p.b[nfvs::Delay] = false;   // 1/8 note = 0.25 s
         auto burst = [&](double t) { return t < 0.1 ? (float) (0.5 * std::sin(tw * 400 * t)) : 0.0f; };
         auto lo = p; lo.dFeedback = 10.0f; auto hi = p; hi.dFeedback = 85.0f;
         const auto a2 = run(lo, 3.0, burst, 1.0), b2 = run(hi, 3.0, burst, 1.0);
@@ -168,7 +187,7 @@ int main()
     }
     std::printf("DELAY LO-FI: darker, crunchier repeats\n");
     {
-        auto p = flat(); p.amt[nfvs::Delay] = 100; p.mode[nfvs::Delay] = 1; p.a[nfvs::Delay] = false; p.b[nfvs::Delay] = false;
+        auto p = flat(); p.amt[nfvs::Delay] = 100; p.dTime = 2; p.a[nfvs::Delay] = false; p.b[nfvs::Delay] = false;
         auto burst = [&](double t) { return t < 0.1 ? (float) (0.5 * std::sin(tw * 6000 * t)) : 0.0f; };
         auto lo = p; lo.dLofi = 100.0f;
         const auto clean = run(p, 1.2, burst, 0.45), dirty = run(lo, 1.2, burst, 0.45);

@@ -57,7 +57,8 @@ private:
     juce::Rectangle<float> presetRect() const { return { 635.0f, 16.0f, 157.0f, 21.0f }; }
     juce::Rectangle<float> waveRect() const { return { 180.0f, 66.0f, 612.0f, 148.0f }; }
     juce::Rectangle<float> moduleRow(int i) const { return { 20.0f, 71.0f + 31.5f * (float) i, 146.0f, 28.0f }; }   // left module list
-    juce::Rectangle<float> modeRect(int i) const { return { 182.0f + 122.0f * (float) i, 227.0f, 118.0f, 28.0f }; }   // STYLE segments
+    int segCount() const { return stage == nfvs::Delay ? 6 : 3; }   // DELAY has six time divisions instead of three styles
+    juce::Rectangle<float> modeRect(int i) const { return stage == nfvs::Delay ? juce::Rectangle<float>(182.0f + 60.5f * (float) i, 227.0f, 58.0f, 28.0f) : juce::Rectangle<float>(182.0f + 122.0f * (float) i, 227.0f, 118.0f, 28.0f); }   // STYLE segments
     juce::Rectangle<float> switchRow(int row) const { return row == 1 ? juce::Rectangle<float>(552.0f, 226.0f, 118.0f, 30.0f) : row == 2 ? juce::Rectangle<float>(674.0f, 226.0f, 118.0f, 30.0f) : juce::Rectangle<float>(); }   // option buttons A / B
     juce::Rectangle<float> harmChip(int col) const { const float cw = (waveRect().getWidth() - 20.0f) / 7.0f; return { waveRect().getX() + 10.0f + cw * (float) col + 5.0f, waveRect().getBottom() - 38.0f, cw - 10.0f, 26.0f }; }
     juce::Rectangle<float> knobStyleRect() const { return { 452.0f, 16.0f, 78.0f, 21.0f }; }

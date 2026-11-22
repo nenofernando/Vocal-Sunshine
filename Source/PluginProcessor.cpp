@@ -15,8 +15,8 @@ NFVocalSunshineAudioProcessor::NFVocalSunshineAudioProcessor()
     }
     outP = apvts.getRawParameterValue("output"); mixP = apvts.getRawParameterValue("mix");
     for (int v = 0; v < 6; ++v) hvP[v] = apvts.getRawParameterValue("hv" + juce::String(v + 1));
-    hkeyP = apvts.getRawParameterValue("hkey"); hleadP = apvts.getRawParameterValue("hlead"); hautoP = apvts.getRawParameterValue("hauto");
-    lofiP = apvts.getRawParameterValue("dlofi"); fbP = apvts.getRawParameterValue("dfb"); deP[0] = apvts.getRawParameterValue("desfreq"); deP[1] = apvts.getRawParameterValue("desmax");
+    hkeyP = apvts.getRawParameterValue("hkey"); hleadP = apvts.getRawParameterValue("hlead"); hautoP = apvts.getRawParameterValue("hauto"); hnotesP = apvts.getRawParameterValue("hnotes");
+    lofiP = apvts.getRawParameterValue("dlofi"); fbP = apvts.getRawParameterValue("dfb"); dtimeP = apvts.getRawParameterValue("dtime"); deP[0] = apvts.getRawParameterValue("desfreq"); deP[1] = apvts.getRawParameterValue("desmax");
     vspreadP = apvts.getRawParameterValue("vspread");
     for (int s = 0; s < nfvs::Finish; ++s)
         for (int k = 0; k < 4; ++k) stP[s][k] = apvts.getRawParameterValue(stageId(s, k == 0 ? "lc" : k == 1 ? "hc" : k == 2 ? "out" : "mix"));
@@ -54,9 +54,9 @@ void NFVocalSunshineAudioProcessor::processBlock(juce::AudioBuffer<float>& buffe
         prm.on[s] = onP[s]->load() > 0.5f; prm.a[s] = aP[s]->load() > 0.5f; prm.b[s] = bP[s]->load() > 0.5f;
     }
     prm.outputDb = outP->load(); prm.mix = mixP->load(); for (int v = 0; v < 6; ++v) prm.hv[v] = hvP[v]->load() > 0.5f;
-    prm.hkey = juce::roundToInt(hkeyP->load()); prm.hLead = hleadP->load() > 0.5f; prm.hAuto = hautoP->load() > 0.5f;
+    prm.hkey = juce::roundToInt(hkeyP->load()); prm.hLead = hleadP->load() > 0.5f; prm.hAuto = hautoP->load() > 0.5f; prm.hNotes = hnotesP->load() > 0.5f;
     for (int s = 0; s < nfvs::Finish; ++s) { prm.stLc[s] = stP[s][0]->load(); prm.stHc[s] = stP[s][1]->load(); prm.stOut[s] = stP[s][2]->load(); prm.stMix[s] = stP[s][3]->load(); }
-    prm.dLofi = lofiP->load(); prm.dFeedback = fbP->load(); prm.deFreq = deP[0]->load(); prm.deMax = deP[1]->load();
+    prm.dLofi = lofiP->load(); prm.dFeedback = fbP->load(); prm.dTime = juce::roundToInt(dtimeP->load()); prm.deFreq = deP[0]->load(); prm.deMax = deP[1]->load();
     prm.vSpread = vspreadP->load();
     for (int b = 0; b < 4; ++b) { prm.eqF[b] = eqP[b][0]->load(); prm.eqG[b] = eqP[b][1]->load(); prm.eqQ[b] = eqP[b][2]->load(); }
     prm.ctlAtk = ctlP[0]->load(); prm.ctlRel = ctlP[1]->load(); prm.ctlRatio = ctlP[2]->load();
@@ -144,8 +144,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout NFVocalSunshineAudioProcesso
         v.push_back(std::make_unique<juce::AudioParameterFloat>(ID{ "desfreq", 1 }, "De-Esser Frequency", fr, 6500.0f, juce::AudioParameterFloatAttributes().withLabel("Hz")));
         v.push_back(std::make_unique<juce::AudioParameterFloat>(ID{ "desmax", 1 }, "De-Esser Max Cut", juce::NormalisableRange<float>(1.0f, 15.0f, 0.1f), 8.0f, juce::AudioParameterFloatAttributes().withLabel("dB")));
     }
+    v.push_back(std::make_unique<juce::AudioParameterChoice>(ID{ "dtime", 1 }, "Delay Time", juce::StringArray { "1/16", "1/8", "1/4", "1/4 dotted", "1/2", "1 bar" }, 2));
     v.push_back(std::make_unique<juce::AudioParameterFloat>(ID{ "dfb", 1 }, "Delay Feedback", juce::NormalisableRange<float>(0.0f, 95.0f, 1.0f), 38.0f, juce::AudioParameterFloatAttributes().withLabel("%")));
     v.push_back(std::make_unique<juce::AudioParameterFloat>(ID{ "dlofi", 1 }, "Delay Lo-Fi", juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 0.0f, juce::AudioParameterFloatAttributes().withLabel("%")));
+    v.push_back(std::make_unique<juce::AudioParameterBool>(ID{ "hnotes", 1 }, "Harmony Key From Sung Notes", true));
     v.push_back(std::make_unique<juce::AudioParameterBool>(ID{ "hauto", 1 }, "Harmony Auto Key", true));
     v.push_back(std::make_unique<juce::AudioParameterBool>(ID{ "hlead", 1 }, "Harmony Lead", true));
     v.push_back(std::make_unique<juce::AudioParameterChoice>(ID{ "hkey", 1 }, "Harmony Key",
@@ -176,6 +178,7 @@ void NFVocalSunshineAudioProcessor::applyPreset(int index)
         set(stageId(s, "a"), (pr.flags[s] & 2) ? 1.0f : 0.0f);
         set(stageId(s, "b"), (pr.flags[s] & 4) ? 1.0f : 0.0f);
     }
+    set("dtime", (float) (pr.mode[nfvs::Delay] + 1));   // old delay styles: 1/8, 1/4, dotted 1/4
     apvts.state.setProperty("presetName", juce::String(pr.name), nullptr);
 }
 

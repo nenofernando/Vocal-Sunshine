@@ -20,11 +20,13 @@ struct Params
     bool on[kStages] = {}, a[kStages] = {}, b[kStages] = {};
     float outputDb = 0.0f, mix = 100.0f;
     float eqF[4] = { 120.0f, 400.0f, 3000.0f, 10000.0f }, eqG[4] = {}, eqQ[4] = { 1.0f, 1.0f, 1.0f, 1.0f };   // EQ: low shelf, 2 bells, high shelf
+    bool hNotes = true;               // HARMONY AUTO: key that best fits the sung notes (true, better for harmonies) or the song key read like Mixa (false)
     bool hAuto = true;                // HARMONY: learn the key from the voice (same profiles and confidence as Mixa's key reading)
     bool hLead = true;                // HARMONY: false = mute the lead and keep only the interval voices
     bool hv[6] = {};                  // harmony intervals: -8ve, -3rd, +3rd, +5th, +6th, +8ve
     int hkey = 0;                     // harmony key, 0 = C
     float vSpread = 100.0f;           // VOICES: how far the left / right copies open, 0..100 %
+    int dTime = 2;                    // DELAY time: 0 = 1/16, 1 = 1/8, 2 = 1/4, 3 = dotted 1/4, 4 = 1/2, 5 = one bar (4/4)
     float dFeedback = 38.0f;          // DELAY: feedback 0..95 %
     float dLofi = 0.0f;               // DELAY: lo-fi amount 0..100 (dirtier and darker repeats)
     float deFreq = 6500.0f, deMax = 8.0f;   // DE-ESSER: centre frequency (Hz) and maximum cut (dB)
@@ -157,7 +159,7 @@ public:
     void prepare(double sampleRate)
     {
         fs = sampleRate;
-        delayLen = (int) (fs * 3.2) + 8;
+        delayLen = (int) (fs * 6.6) + 8;   // up to one bar at 40 bpm
         delayBuf[0].assign((size_t) delayLen, 0.0f);
         delayBuf[1].assign((size_t) delayLen, 0.0f);
         preLen = (int) (fs * 0.06) + 2;
@@ -200,7 +202,7 @@ public:
         dcX[0] = dcX[1] = dcY[0] = dcY[1] = 0;
         std::fill(vBuf.begin(), vBuf.end(), 0.0f); vw = 0; lfo1 = 0; lfo2 = 1.3f;
         for (int v = 0; v < 6; ++v) { hPhase[v] = 0.0f; hSemi[v] = 0.0f; hPrev[v] = false; }
-        trkH.reset(); leadOut.store(-1.0f); leadG = 1.0f; resetKeyLearning();
+        trkH.reset(); leadOut.store(-1.0f); leadG = 1.0f; resetKeyLearning(); keyFramesSeen = 0;
         colCount = 0; for (auto& v : colPk) v = 0;
     }
 
@@ -209,9 +211,9 @@ public:
     {
         const float outGain = juce::Decibels::decibelsToGain(p.outputDb);
         const float mixAmt = juce::jlimit(0.0f, 1.0f, p.mix / 100.0f);
-        static const float kDivMult[3] = { 0.5f, 1.0f, 1.5f };
+        static const float kDivBeats[6] = { 0.25f, 0.5f, 1.0f, 1.5f, 2.0f, 4.0f };   // in beats: 1/16, 1/8, 1/4, dotted 1/4, 1/2, 1 bar
         const float beat = (float) (60.0 / std::max(40.0, p.bpm));
-        const float delayTarget = juce::jlimit(0.02f, 3.0f, beat * kDivMult[juce::jlimit(0, 2, p.mode[Delay])]) * (float) fs;
+        const float delayTarget = juce::jlimit(0.02f, 6.4f, beat * kDivBeats[juce::jlimit(0, 5, p.dTime)]) * (float) fs;
         if (delaySmoothed < 0.0f) delaySmoothed = delayTarget;
 
         auto tc = [&](float sec) { return 1.0f - std::exp(-1.0f / (sec * (float) fs)); };
@@ -291,7 +293,7 @@ public:
             leadG += (((!p.hLead && nAct > 0) ? 0.0f : 1.0f) - leadG) * 0.35f;       // lead muted only while at least one interval voice is on
             const bool hSpread = ta[Harmony] > 0.5f, hSoft = tb[Harmony] > 0.5f;
             const bool hTrack = hm > 0.002f || p.hAuto;                       // the tracker also runs for AUTO key, even with the harmony amount at 0
-            const int autoK = autoKeyOut.load(std::memory_order_relaxed);
+            const int autoK = (p.hNotes ? autoKeyPOut : autoKeyOut).load(std::memory_order_relaxed);
             const bool useAuto = p.hAuto && autoK >= 0;                        // FIXED keeps plain semitones, otherwise the detected major / minor wins
             const int effKey = useAuto ? autoK % 12 : p.hkey, effMode = useAuto && mHar != 2 ? (autoK >= 12 ? 1 : 0) : mHar;
             float hL[6], hR[6], hRatio[6];
@@ -695,6 +697,8 @@ public:
             }
 
             if (autoResetReq.exchange(false)) resetKeyLearning();
+            if (p.hAuto) { if (trkH.frames != keyFramesSeen) { keyFramesSeen = trkH.frames; if (trkH.fresh) learnNotes(trkH.midi); } }
+            else keyFramesSeen = trkH.frames;
             leadOut.store(trkH.voiced ? trkH.midi : -1.0f, std::memory_order_relaxed);
             if (toDb(envFull) > -75.0f) infoMax[Clean] = std::max(infoMax[Clean], -toDb(gNoise));   // silence closing the gate is not worth showing
             infoMax[Fix] = std::max(infoMax[Fix], fxRed);
@@ -717,7 +721,15 @@ public:
     // learned key of the voice: tonic (0 = C) + 12 for minor, -1 = not enough singing yet; confidence 0..1; seconds of singing heard
     int autoKeyNow() const { return autoKeyOut.load(std::memory_order_relaxed); }
     float autoConfidenceNow() const { return autoConfOut.load(std::memory_order_relaxed); }
+    int autoKeyFor(bool phrase) const { return (phrase ? autoKeyPOut : autoKeyOut).load(std::memory_order_relaxed); }
+    float autoConfFor(bool phrase) const { return (phrase ? autoConfPOut : autoConfOut).load(std::memory_order_relaxed); }
+    int autoAltFor(bool phrase) const { return (phrase ? autoAltPOut : autoAltOut).load(std::memory_order_relaxed); }
+    float leadMidiRaw() const { return trkH.midi; }
+    int leadFramesRaw() const { return trkH.frames; }
+    bool leadFreshRaw() const { return trkH.fresh; }
+    bool leadVoicedNow() const { return trkH.voiced; }
     int autoAlternativeNow() const { return autoAltOut.load(std::memory_order_relaxed); }   // close runner-up key (same coding) or -1
+    float autoSecFor(bool notes) const { return (notes ? autoSecPOut : autoSecOut).load(std::memory_order_relaxed); }
     float autoSecondsNow() const { return autoSecOut.load(std::memory_order_relaxed); }
     void requestKeyReset() { autoResetReq.store(true); }
     void copyKeyHistogram(double* out12) const { for (int i = 0; i < 12; ++i) out12[i] = chroma[i]; }   // for diagnostics
@@ -750,9 +762,26 @@ private:
     void resetKeyLearning()
     {
         for (auto& c : chroma) c = 0.0;
+        for (auto& c : chromaP) c = 0.0;
+        autoKeyPOut.store(-1); autoConfPOut.store(0.0f); autoAltPOut.store(-1); autoSecPOut.store(0.0f);
+        noteSeconds = 0.0; noteFrameCount = 0;
         keySeconds = 0.0; keyFrameCount = 0; kHave = 0; kHop = 0;
         std::fill(kRing.begin(), kRing.end(), 0.0f);
         autoKeyOut.store(-1); autoConfOut.store(0.0f); autoSecOut.store(0.0f); autoAltOut.store(-1);
+    }
+
+    // The key that best fits the sung notes: histogram of the pitches the tracker hears (the reading that harmonises best on real vocals:
+    // on 6 vocals it kept 74-89 % of the sung notes inside the scale, where the spectral song reading kept 56-90 %).
+    void learnNotes(float midi)
+    {
+        const double rounded = std::round((double) midi), dev = std::abs((double) midi - rounded);
+        const double frameSec = 128.0 * (double) trkH.decim / fs;
+        const double decay = std::pow(0.5, frameSec / 67.0);               // half-life about a minute
+        for (auto& c : chromaP) c *= decay;
+        noteSeconds += frameSec;
+        if (dev <= 0.4) chromaP[(((int) rounded) % 12 + 12) % 12] += 1.0 - 1.2 * dev;
+        autoSecPOut.store((float) noteSeconds, std::memory_order_relaxed);
+        if (++noteFrameCount % 40 == 0) estimateKey(chromaP, autoKeyPOut, autoConfPOut, autoAltPOut, noteSeconds, 4.0);
     }
 
     void prepareKeyLearning()
@@ -782,25 +811,27 @@ private:
         if (std::sqrt(e / kKeyN) < 0.0003) return;                          // digital silence adds nothing
         std::fill(kFftData.begin() + kKeyN, kFftData.end(), 0.0f);
         kFft.performFrequencyOnlyForwardTransform(kFftData.data());
-        const double decay = std::pow(0.5, (double) (kKeyN / 2) / fs / 600.0);   // half-life ten minutes
-        for (auto& c : chroma) c *= decay;
-        for (int b = 1; b < kKeyN / 2; ++b) if (kBinPc[(size_t) b] >= 0) chroma[kBinPc[(size_t) b]] += std::sqrt((double) kFftData[(size_t) b]);
+        const double hop = (double) (kKeyN / 2) / fs;
+        const double decayS = std::pow(0.5, hop / 600.0);   // song reading: half-life 10 min (like Mixa, whole song)
+        double fc[12] = {};
+        for (int b = 1; b < kKeyN / 2; ++b) if (kBinPc[(size_t) b] >= 0) fc[kBinPc[(size_t) b]] += std::sqrt((double) kFftData[(size_t) b]);
+        for (int i = 0; i < 12; ++i) chroma[i] = chroma[i] * decayS + fc[i];
         keySeconds += (double) (kKeyN / 2) / fs;
         autoSecOut.store((float) keySeconds, std::memory_order_relaxed);
-        if (++keyFrameCount % 8 == 0) estimateKey();
+        if (++keyFrameCount % 8 == 0) estimateKey(chroma, autoKeyOut, autoConfOut, autoAltOut, keySeconds, 6.0);
     }
 
-    void estimateKey()
+    void estimateKey(const double* chr, std::atomic<int>& keyOut, std::atomic<float>& confOut, std::atomic<int>& altOut, double secs, double minSecs)
     {
-        if (keySeconds < 6.0) { autoKeyOut.store(-1); autoConfOut.store(0.0f); autoAltOut.store(-1); return; }
+        if (secs < minSecs) { keyOut.store(-1); confOut.store(0.0f); altOut.store(-1); return; }
         static const double maj[] = { 17.7661, 0.145624, 14.9265, 0.160186, 19.8049, 11.3587, 0.291248, 22.062, 0.145624, 8.15494, 0.232998, 4.95122 };
         static const double min[] = { 18.2648, 0.737619, 14.0502, 16.8599, 0.702494, 14.4362, 0.702494, 18.6161, 4.56621, 1.93186, 7.37619, 1.75623 };
         auto corr = [&](const double* prof, int shift) {
             double mx = 0, mp = 0;
-            for (int i = 0; i < 12; ++i) { mx += chroma[i]; mp += prof[i]; }
+            for (int i = 0; i < 12; ++i) { mx += chr[i]; mp += prof[i]; }
             mx /= 12; mp /= 12;
             double num = 0, dx = 0, dp = 0;
-            for (int i = 0; i < 12; ++i) { const double a2 = chroma[(i + shift) % 12] - mx, b2 = prof[i] - mp; num += a2 * b2; dx += a2 * a2; dp += b2 * b2; }
+            for (int i = 0; i < 12; ++i) { const double a2 = chr[(i + shift) % 12] - mx, b2 = prof[i] - mp; num += a2 * b2; dx += a2 * a2; dp += b2 * b2; }
             return dx > 0 && dp > 0 ? num / std::sqrt(dx * dp) : 0.0;
         };
         double cs[24]; int order[24];
@@ -808,15 +839,15 @@ private:
         for (int i = 0; i < 24; ++i) order[i] = i;
         std::sort(order, order + 24, [&](int x, int y) { return cs[x] > cs[y]; });
         int best = order[0], second = order[1];
-        const int cur = autoKeyOut.load(std::memory_order_relaxed);
+        const int cur = keyOut.load(std::memory_order_relaxed);
         if (cur >= 0 && best != cur && cs[best] - cs[cur] < 0.04) { second = best; best = cur; }   // hysteresis: only change when the new key is clearly better
         else if (best == cur) second = order[1];
         const double gap = cs[best] - cs[second == best ? order[1] : second];
         // Mixa's formula, then scaled by how much singing has been heard (little evidence = low confidence)
-        const double evidence = juce::jlimit(0.0, 1.0, keySeconds / 30.0);
-        autoKeyOut.store(best, std::memory_order_relaxed);
-        autoConfOut.store((float) (juce::jlimit(0.0, 1.0, gap * 5.0 + 0.3) * (0.3 + 0.7 * evidence)), std::memory_order_relaxed);
-        autoAltOut.store(gap < 0.06 ? second : -1, std::memory_order_relaxed);   // a close runner-up is worth showing
+        const double evidence = juce::jlimit(0.0, 1.0, secs / 30.0);
+        keyOut.store(best, std::memory_order_relaxed);
+        confOut.store((float) (juce::jlimit(0.0, 1.0, gap * 5.0 + 0.3) * (0.3 + 0.7 * evidence)), std::memory_order_relaxed);
+        altOut.store(gap < 0.06 ? second : -1, std::memory_order_relaxed);   // a close runner-up is worth showing
     }
 
     void updateDeEss(float f, float q)
@@ -887,7 +918,10 @@ private:
     std::vector<float> kRing, kWin, kFftData;
     std::vector<int> kBinPc;
     juce::dsp::FFT kFft { 12 };
-    std::atomic<int> autoKeyOut { -1 }, autoAltOut { -1 };
+    double chromaP[12] = {};
+    std::atomic<int> autoKeyOut { -1 }, autoAltOut { -1 }, autoKeyPOut { -1 }, autoAltPOut { -1 };
+    std::atomic<float> autoConfPOut { 0.0f }, autoSecPOut { 0.0f };
+    double noteSeconds = 0.0; int noteFrameCount = 0, keyFramesSeen = 0;
     std::atomic<float> autoConfOut { 0.0f }, autoSecOut { 0.0f };
     std::atomic<bool> autoResetReq { false };
     float leadG = 1.0f;

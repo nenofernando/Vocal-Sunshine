@@ -16,7 +16,7 @@ public:
     bool acceptsMidi() const override { return false; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
-    double getTailLengthSeconds() const override { return 3.0; }
+    double getTailLengthSeconds() const override { return 8.0; }
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
     void setCurrentProgram(int) override {}
@@ -37,7 +37,7 @@ private:
     nfvs::Chain chain;
     std::atomic<float>* amtP[nfvs::kStages] = {}; std::atomic<float>* modeP[nfvs::kStages] = {}; std::atomic<float>* onP[nfvs::kStages] = {};
     std::atomic<float>* aP[nfvs::kStages] = {}; std::atomic<float>* bP[nfvs::kStages] = {};
-    std::atomic<float>* outP = nullptr; std::atomic<float>* mixP = nullptr; std::atomic<float>* hvP[6] = {}; std::atomic<float>* hkeyP = nullptr; std::atomic<float>* hleadP = nullptr; std::atomic<float>* hautoP = nullptr; std::atomic<float>* deP[2] = {}; std::atomic<float>* lofiP = nullptr; std::atomic<float>* fbP = nullptr; std::atomic<float>* stP[nfvs::kStages][4] = {}; std::atomic<float>* ctlP[3] = {}; std::atomic<float>* vspreadP = nullptr; std::atomic<float>* eqP[4][3] = {}; std::atomic<float>* lowP = nullptr; std::atomic<float>* highP = nullptr; std::atomic<float>* bypassP = nullptr;
+    std::atomic<float>* outP = nullptr; std::atomic<float>* mixP = nullptr; std::atomic<float>* hvP[6] = {}; std::atomic<float>* hkeyP = nullptr; std::atomic<float>* hleadP = nullptr; std::atomic<float>* hautoP = nullptr; std::atomic<float>* hnotesP = nullptr; std::atomic<float>* deP[2] = {}; std::atomic<float>* lofiP = nullptr; std::atomic<float>* fbP = nullptr; std::atomic<float>* dtimeP = nullptr; std::atomic<float>* stP[nfvs::kStages][4] = {}; std::atomic<float>* ctlP[3] = {}; std::atomic<float>* vspreadP = nullptr; std::atomic<float>* eqP[4][3] = {}; std::atomic<float>* lowP = nullptr; std::atomic<float>* highP = nullptr; std::atomic<float>* bypassP = nullptr;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> bypassMix;
     std::vector<float> scratchIn[2];
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NFVocalSunshineAudioProcessor)
