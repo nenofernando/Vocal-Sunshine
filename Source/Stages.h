@@ -29,7 +29,7 @@ inline const StageInfo kStageInfo[kStages] = {
     { "COMPRESSOR", { "GENTLE", "PUNCHY", "HEAVY" }, "AUTO GAIN",   "LEVEL RIDER", 50.0f, 1, true,  true,  0xff2b8cff, "Compressor and level rider to even out the voice", "GAIN REDUCTION" },
     { "DE-ESSER", { "NARROW", "MEDIUM", "WIDE" },   "LISTEN",       "SMOOTH",      40.0f, 1, false, true,  0xff00e5ff, "Softens harsh S and SH sounds at the frequency you choose", "REDUCTION" },
     { "COLOR",   { "TAPE", "TUBE", "EXCITER" },      "SPARKLE",      "LOW THUMP",   20.0f, 0, false, false, 0xffff1f4b, "Adds harmonics and character",                  "" },
-    { "VOICES",  { "DOUBLE", "STACK", "WIDE" },      "LOW MONO",     "SOFTEN",      15.0f, 0, true,  false, 0xffd34dff, "Opens the voice into doubled, wide copies",     "" },
+    { "DOUBLE",   { "DOUBLE", "STACK", "WIDE" },      "LOW MONO",     "SOFTEN",      15.0f, 0, true,  false, 0xffd34dff, "Opens the voice into doubled, wide copies",     "" },
     { "HARMONY", { "MAJOR", "MINOR", "FIXED" },  "SPREAD",      "SOFTEN",       0.0f, 0, true,  true,  0xffffe600, "Adds harmony voices at musical intervals",     "" },
     { "REVERB",  { "PLATE", "ROOM", "HALL" },        "BRIGHT",       "DUCK",        25.0f, 0, false, true,  0xff9d4dff, "Reverb that stays out of the way",              "" },
     { "DELAY",   { "1/8", "1/4", "1/4 DOTTED" },     "PING-PONG",    "DUCK",         0.0f, 1, true,  true,  0xff5a6bff, "Echo locked to the project tempo",              "" },

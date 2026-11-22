@@ -402,13 +402,16 @@ void NFVocalSunshineAudioProcessorEditor::mouseDoubleClick(const juce::MouseEven
 
 void NFVocalSunshineAudioProcessorEditor::timerCallback()
 {
+    const unsigned bc = proc.blockCount.load(std::memory_order_relaxed);   // the host stopped calling the plug-in -> meters fall to zero
+    if (bc == lastBlocks) idle = ++idleTicks >= 4; else { idleTicks = 0; idle = false; }
+    lastBlocks = bc;
     bypassed = pv("bypass") > 0.5f;
     presetName = proc.apvts.state.getProperty("presetName").toString();
     const bool on = pv(sid("on")) > 0.5f;
     look.accent = on ? stageColour(stage) : juce::Colour(0xff55575e);
     float target = pv(sid("amt")) / 100.0f;
     const auto& si = nfvs::kStageInfo[stage];
-    if (si.activity[0] != 0) target = juce::jlimit(0.0f, 1.0f, proc.chainRef().infoAt(stage) / 12.0f);
+    if (si.activity[0] != 0) target = juce::jlimit(0.0f, 1.0f, infoNow(stage) / 12.0f);
     act = target > act ? target : act + (target - act) * 0.15f;
     if (stage == nfvs::Fix || stage == nfvs::Eq || stage == nfvs::Tone || stage == nfvs::DeEss) updateSpectrum();
     repaint();
@@ -506,7 +509,7 @@ void NFVocalSunshineAudioProcessorEditor::drawVoices(juce::Graphics& g, juce::Re
     g.drawText("L", juce::Rectangle<float>(r.getX(), base + 2.0f, 20.0f, 12.0f), juce::Justification::centredLeft);
     g.drawText("R", juce::Rectangle<float>(r.getRight() - 20.0f, base + 2.0f, 20.0f, 12.0f), juce::Justification::centredRight);
     g.drawText("CENTRE", juce::Rectangle<float>(cx - 30.0f, base + 2.0f, 60.0f, 12.0f), juce::Justification::centred);
-    g.setColour(accent); g.drawText("VOICES", juce::Rectangle<float>(wp.getX() + 14.0f, wp.getY() + 6.0f, 120.0f, 12.0f), juce::Justification::centredLeft);
+    g.setColour(accent); g.drawText("DOUBLE", juce::Rectangle<float>(wp.getX() + 14.0f, wp.getY() + 6.0f, 120.0f, 12.0f), juce::Justification::centredLeft);
     g.setColour(kMuted); g.drawText("Drag sideways to set how far the L / R copies open", juce::Rectangle<float>(wp.getX() + 14.0f, wp.getY() + 20.0f, 360.0f, 12.0f), juce::Justification::centredLeft);
     g.setColour(kText); g.setFont(font(11.0f, true));
     g.drawText("WIDTH  " + juce::String(juce::roundToInt(pv("vspread"))) + " %", juce::Rectangle<float>(wp.getRight() - 150.0f, wp.getY() + 6.0f, 136.0f, 14.0f), juce::Justification::centredRight);
@@ -529,9 +532,7 @@ void NFVocalSunshineAudioProcessorEditor::paint(juce::Graphics& g)
     auto textW = [](const juce::Font& f, const juce::String& s) { juce::GlyphArrangement ga; ga.addLineOfText(f, s, 0.0f, 0.0f); return ga.getBoundingBox(0, -1, true).getWidth(); };
     auto glow = [&](float cx, float cy, float rad, juce::Colour col) { g.setColour(col.withAlpha(0.22f)); g.fillEllipse(cx - rad * 2.0f, cy - rad * 2.0f, rad * 4.0f, rad * 4.0f); g.setColour(col); g.fillEllipse(cx - rad, cy - rad, rad * 2.0f, rad * 2.0f); };
 
-    auto neonText = [&](const juce::String& txt, juce::Rectangle<float> r, juce::Justification j, juce::Colour col) {   // soft neon halo, then the text
-        g.setColour(col.withAlpha(0.20f));
-        for (float dx : { -1.4f, 0.0f, 1.4f }) for (float dy : { -1.4f, 0.0f, 1.4f }) if (dx != 0.0f || dy != 0.0f) g.drawText(txt, r.translated(dx, dy), j);
+    auto neonText = [&](const juce::String& txt, juce::Rectangle<float> r, juce::Justification j, juce::Colour col) {   // crisp text in the neon colour (the halo made it look blurry)
         g.setColour(col); g.drawText(txt, r, j);
     };
 
@@ -645,7 +646,7 @@ void NFVocalSunshineAudioProcessorEditor::paint(juce::Graphics& g)
     }
     if (stage == nfvs::Control)
     {
-        const float gr = chain.infoAt(nfvs::Control);
+        const float gr = infoNow(nfvs::Control);
         const auto br = juce::Rectangle<float>(wp.getRight() - 190.0f, wp.getY() + 14.0f, 170.0f, 8.0f);
         g.setColour(kDark.withAlpha(0.92f)); g.fillRoundedRectangle(br.expanded(10.0f, 8.0f).withHeight(44.0f).translated(0.0f, -2.0f), 6.0f);
         g.setColour(kMuted); g.setFont(font(9.0f, true));
@@ -712,7 +713,7 @@ void NFVocalSunshineAudioProcessorEditor::paint(juce::Graphics& g)
             g.setColour(lit ? col : juce::Colour(0xff1b1c1f));
             g.fillRoundedRectangle(mt.getX(), mt.getBottom() - (float) (j + 1) * 10.0f + 1.0f, mt.getWidth(), 8.0f, 1.5f);
         }
-        static const char* kMeter[nfvs::kStages] = { "NR", "CUT", "EQ", "TONE", "GR", "ESS", "COL", "VOX", "HARM", "REV", "DLY", "LIM" };
+        static const char* kMeter[nfvs::kStages] = { "NR", "CUT", "EQ", "TONE", "GR", "ESS", "COL", "DBL", "HARM", "REV", "DLY", "LIM" };
         g.setColour(kMuted); g.setFont(font(8.0f, true));
         g.drawText(si.activity[0] ? kMeter[stage] : "AMT", juce::Rectangle<float>(mt.getX() - 12.0f, mt.getBottom() + 8.0f, 40.0f, 10.0f), juce::Justification::centred);
     }
@@ -973,6 +974,6 @@ void NFVocalSunshineAudioProcessorEditor::drawDeEss(juce::Graphics& g, juce::Rec
     g.drawText(juce::String(f / 1000.0f, 1) + " kHz", juce::Rectangle<float>(xOf(f) - 36.0f, r.getBottom() - 24.0f, 72.0f, 12.0f), juce::Justification::centred);
     g.setColour(kText);
     const bool listen = pv(sid("a")) > 0.5f && modOn;
-    g.drawText(listen ? juce::String("LISTEN: only the controlled band is played") : "CUT  -" + juce::String(proc.chainRef().infoAt(nfvs::DeEss), 1) + " dB",
+    g.drawText(listen ? juce::String("LISTEN: only the controlled band is played") : "CUT  -" + juce::String(infoNow(nfvs::DeEss), 1) + " dB",
                juce::Rectangle<float>(wp.getRight() - 330.0f, wp.getY() + 6.0f, 316.0f, 14.0f), juce::Justification::centredRight);
 }

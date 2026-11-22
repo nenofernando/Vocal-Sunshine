@@ -29,6 +29,7 @@ public:
     void applyPreset(int index);
 
     juce::AudioProcessorValueTreeState apvts;
+    std::atomic<unsigned> blockCount { 0 };   // incremented by every processBlock call (the editor uses it to tell when audio stopped)
     const nfvs::Chain& chainRef() const { return chain; }
 
 private:

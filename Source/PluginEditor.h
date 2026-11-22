@@ -70,6 +70,8 @@ private:
     int stage = 0;
     bool bypassed = false;
     bool draggingSpread = false;
+    unsigned lastBlocks = 0; int idleTicks = 0; bool idle = false;
+    float infoNow(int s) const { return idle ? 0.0f : proc.chainRef().infoAt(s); }
     int dragBand = -1, selBand = 1;
     void setSpreadFromX(float x);
     float act = 0.0f;

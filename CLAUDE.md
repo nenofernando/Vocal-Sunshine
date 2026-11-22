@@ -1,6 +1,6 @@
 # NF Vocal Sunshine
 Guided eleven-stage vocal processor (own design; the idea came from a "vocal chain in minutes" wizard seen in a video — never copy another product's name, art or presets).
-Signal chain, zero latency: LOW/HIGH CUT (global knobs) -> CLEAN -> FIX -> EQ (4 draggable points) -> TONE -> CONTROL -> DE-ESSER -> COLOR -> VOICES (double/stack/wide) -> HARMONY (pitch-shifted interval voices) -> REVERB -> DELAY -> FINISH, then Output + Mix (12 stages; CONTROL stage is shown as COMPRESSOR). One stage is shown at a time:
+Signal chain, zero latency: LOW/HIGH CUT (global knobs) -> CLEAN -> FIX -> EQ (4 draggable points) -> TONE -> CONTROL -> DE-ESSER -> COLOR -> DOUBLE (double/stack/wide; shown as DOUBLE in the UI, `Voices` in code) -> HARMONY (pitch-shifted interval voices) -> REVERB -> DELAY -> FINISH, then Output + Mix (12 stages; CONTROL stage is shown as COMPRESSOR). One stage is shown at a time:
 big amount knob, 3 styles, module on/off, 2 option switches, before/after waveform (input vs the signal after the selected stage), activity meter, stage rail at the bottom.
 - Repo `~/NF-Vocal-Sunshine` (local git, not pushed). Version: `CMakeLists.txt` line 2 only (no installer yet). Licence OFF while developing (Neno adds it at the end with Paulo).
 - Ids: bundle `com.nfaudiotools.nfvocalsunshine`, manufacturer `Nfat`, code `Nfsu`, licence code would be `NF_VOCAL_SUNSHINE`.

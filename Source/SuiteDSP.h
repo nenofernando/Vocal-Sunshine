@@ -639,7 +639,7 @@ public:
             }
 
             leadOut.store(trkH.voiced ? trkH.midi : -1.0f, std::memory_order_relaxed);
-            infoMax[Clean] = std::max(infoMax[Clean], -toDb(gNoise));
+            if (toDb(envFull) > -75.0f) infoMax[Clean] = std::max(infoMax[Clean], -toDb(gNoise));   // silence closing the gate is not worth showing
             infoMax[Fix] = std::max(infoMax[Fix], fxRed);
             infoMax[Control] = std::max(infoMax[Control], grMax);
             infoMax[DeEss] = std::max(infoMax[DeEss], deRedMax);

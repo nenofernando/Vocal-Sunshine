@@ -41,6 +41,7 @@ bool NFVocalSunshineAudioProcessor::isBusesLayoutSupported(const BusesLayout& l)
 void NFVocalSunshineAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     juce::ScopedNoDenormals guard;
+    blockCount.fetch_add(1, std::memory_order_relaxed);
     const int numCh = std::min(2, buffer.getNumChannels()), n = buffer.getNumSamples();
     if (numCh <= 0 || n <= 0) return;
 
