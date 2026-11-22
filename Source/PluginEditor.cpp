@@ -109,8 +109,8 @@ void NFVocalSunshineAudioProcessorEditor::KnobLook::drawRotarySlider(juce::Graph
 NFVocalSunshineAudioProcessorEditor::NFVocalSunshineAudioProcessorEditor(NFVocalSunshineAudioProcessor& p)
     : AudioProcessorEditor(&p), proc(p)
 {
-    logo = juce::ImageCache::getFromMemory(NFVocalSunshineBinaryData::_10_logo_nf_audio_tools_png,
-                                           NFVocalSunshineBinaryData::_10_logo_nf_audio_tools_pngSize);
+    logo = juce::ImageCache::getFromMemory(NFVocalSunshineBinaryData::NF_Audio_Tools_Logo_MAIN_800_png,
+                                           NFVocalSunshineBinaryData::NF_Audio_Tools_Logo_MAIN_800_pngSize);
     auto setup = [this](juce::Slider& s, KnobLook& l, int drag) {
         s.setLookAndFeel(&l);
         s.setSliderStyle(juce::Slider::RotaryVerticalDrag);
@@ -555,8 +555,16 @@ void NFVocalSunshineAudioProcessorEditor::paint(juce::Graphics& g)
     }
 
     // ---- header
-    if (logo.isValid())
-        g.drawImage(logo, juce::Rectangle<float>(26.0f, 10.0f, 80.0f, 44.0f), juce::RectanglePlacement::xLeft | juce::RectanglePlacement::yMid);
+    if (logo.isValid())   // official logo, rescaled with high quality to the exact pixel size so it stays sharp
+    {
+        const auto dst = juce::RectanglePlacement(juce::RectanglePlacement::xLeft | juce::RectanglePlacement::yMid).appliedTo(logo.getBounds().toFloat(), juce::Rectangle<float>(26.0f, 9.0f, 80.0f, 46.0f));
+        const auto* disp = juce::Desktop::getInstance().getDisplays().getDisplayForRect(getScreenBounds());
+        const float px = scale() * (disp != nullptr ? (float) disp->scale : 1.0f);
+        const int tw = juce::jmax(8, juce::roundToInt(dst.getWidth() * px)), th = juce::jmax(8, juce::roundToInt(dst.getHeight() * px));
+        if (logoScaled.getWidth() != tw || logoScaled.getHeight() != th) logoScaled = logo.rescaled(tw, th, juce::Graphics::highResamplingQuality);
+        g.setImageResamplingQuality(juce::Graphics::highResamplingQuality);
+        g.drawImage(logoScaled, dst);
+    }
     g.setColour(juce::Colour(0xfff0ede6)); g.setFont(font(19.0f, true));
     g.drawText("V O C A L   S U N S H I N E", juce::Rectangle<float>(116.0f, 20.0f, 300.0f, 26.0f), juce::Justification::centredLeft);
 

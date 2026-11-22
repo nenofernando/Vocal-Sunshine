@@ -18,7 +18,7 @@ if(APPLE)
 endif()
 
 juce_add_binary_data(NFVocalSunshineAssets HEADER_NAME NFVocalSunshineBinaryData.h NAMESPACE NFVocalSunshineBinaryData
- SOURCES Assets/10_logo_nf_audio_tools.png)
+ SOURCES Assets/NF_Audio_Tools_Logo_MAIN_800.png)
 
 set(VS_SOURCES Source/PluginProcessor.cpp Source/PluginEditor.cpp)
 set(VS_DEFS JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0 JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_REPORT_APP_USAGE=0)
