@@ -32,7 +32,19 @@ int main(int argc, char** argv)
     }
     std::unique_ptr<juce::AudioProcessorEditor> ed(proc.createEditor());
     ed->setSize(810, 500);
-    for (int i = 0; i < 80; ++i) juce::MessageManager::getInstance()->runDispatchLoopUntil(20);
+    const bool live = argc > 7 && std::atoi(argv[7]) != 0;   // keep feeding audio while the editor runs: the meters should move; without it they must fall to zero
+    double phase2 = 0.0;
+    for (int i = 0; i < 80; ++i)
+    {
+        if (live)
+            for (int blk = 0; blk < 4; ++blk)
+            {
+                juce::AudioBuffer<float> b(2, 480);
+                for (int k = 0; k < 480; ++k) { phase2 += 2.0 * juce::MathConstants<double>::pi * 190.0 / 48000.0; const float v = (float) (0.45 * (std::sin(phase2) + 0.5 * std::sin(2 * phase2))); b.setSample(0, k, v); b.setSample(1, k, v); }
+                juce::MidiBuffer mb; proc.processBlock(b, mb);
+            }
+        juce::MessageManager::getInstance()->runDispatchLoopUntil(20);
+    }
     auto img = ed->createComponentSnapshot(ed->getLocalBounds(), true, argc > 3 ? (float) std::atof(argv[3]) : 1.5f);
     juce::File out(argc > 1 ? argv[1] : "snapshot.png");
     out.deleteFile();

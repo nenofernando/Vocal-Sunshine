@@ -479,9 +479,17 @@ void NFVocalSunshineAudioProcessorEditor::timerCallback()
     presetName = proc.apvts.state.getProperty("presetName").toString();
     const bool on = pv(sid("on")) > 0.5f;
     look.accent = on ? stageColour(stage) : juce::Colour(0xff55575e);
-    float target = pv(sid("amt")) / 100.0f;
+    float target = 0.0f;
     const auto& si = nfvs::kStageInfo[stage];
     if (si.activity[0] != 0) target = juce::jlimit(0.0f, 1.0f, infoNow(stage) / 12.0f);
+    else if (!idle)
+    {   // no reduction meter for this stage: show the real output level of the stage (it falls to zero when the audio stops)
+        const auto& chain = proc.chainRef();
+        const int pos = chain.histWritePos(), cols = nfvs::Chain::kHist;
+        float lvl = 0.0f;
+        for (int k = 1; k <= 4; ++k) lvl = std::max(lvl, chain.histAt(stage + 1, (pos - k + cols) % cols));
+        target = juce::jlimit(0.0f, 1.0f, (nfvs::toDb(lvl) + 48.0f) / 48.0f);
+    }
     act = target > act ? target : act + (target - act) * 0.15f;
     if (stage == nfvs::Fix || stage == nfvs::Eq || stage == nfvs::Tone || stage == nfvs::DeEss) updateSpectrum();
     repaint();
@@ -827,7 +835,7 @@ void NFVocalSunshineAudioProcessorEditor::paint(juce::Graphics& g)
         }
         static const char* kMeter[nfvs::kStages] = { "NR", "CUT", "EQ", "TONE", "GR", "ESS", "COL", "DBL", "HARM", "REV", "DLY", "LIM" };
         g.setColour(kMuted); g.setFont(font(8.0f, true));
-        g.drawText(si.activity[0] ? kMeter[stage] : "AMT", juce::Rectangle<float>(mt.getX() - 12.0f, mt.getBottom() + 8.0f, 40.0f, 10.0f), juce::Justification::centred);
+        g.drawText(si.activity[0] ? kMeter[stage] : "LVL", juce::Rectangle<float>(mt.getX() - 12.0f, mt.getBottom() + 8.0f, 40.0f, 10.0f), juce::Justification::centred);
     }
 
     // ---- LCD value window next to the big knob
