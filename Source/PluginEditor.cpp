@@ -213,6 +213,16 @@ void NFVocalSunshineAudioProcessorEditor::selectStage(int s)
     knobAtt.reset();
     knobAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(proc.apvts, sid("amt"), knob);
     knob.setDoubleClickReturnValue(true, (double) nfvs::kStageInfo[s].defAmt);
+    {   // the four knobs of the lower strip belong to the selected stage; FINISH carries the global (whole plug-in) controls
+        auto bind = [this](std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>& att, juce::Slider& sl, const juce::String& id) {
+            att.reset(); att = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(proc.apvts, id, sl);
+        };
+        const bool global = s == nfvs::Finish;
+        bind(lowAtt, lowKnob, global ? juce::String("lowcut") : sid("lc"));
+        bind(highAtt, highKnob, global ? juce::String("highcut") : sid("hc"));
+        bind(outAtt, outKnob, global ? juce::String("output") : sid("out"));
+        bind(mixAtt, mixKnob, global ? juce::String("mix") : sid("mix"));
+    }
     setupValueTexts();
     look.accent = stageColour(s);
     for (auto* k : { &atkKnob, &relKnob, &ratKnob }) k->setVisible(s == nfvs::Control);
@@ -823,9 +833,13 @@ void NFVocalSunshineAudioProcessorEditor::paint(juce::Graphics& g)
         g.drawFittedText(si.hint, card.reduced(12.0f, 8.0f).toNearestInt(), juce::Justification::centredLeft, 3);
     }
 
-    // ---- master strip: low cut, high cut, output, mix
+    // ---- strip: low cut, high cut, output, mix. Per stage, except FINISH = the whole plug-in
     recess(juce::Rectangle<float>(546.0f, 366.0f, 246.0f, 100.0f), 8.0f);
     {
+        g.setFont(font(7.5f, true));
+        g.setColour(stage == nfvs::Finish ? juce::Colour(0xffffd400) : accent.withAlpha(0.85f));
+        g.drawText(stage == nfvs::Finish ? juce::String("MASTER  -  WHOLE PLUG-IN") : juce::String(si.name) + "  -  THIS STAGE ONLY",
+                   juce::Rectangle<float>(552.0f, 454.0f, 234.0f, 10.0f), juce::Justification::centred);
         const std::pair<juce::Slider*, const char*> kn[] = { { &lowKnob, "LOW CUT" }, { &highKnob, "HIGH CUT" }, { &outKnob, "OUTPUT" }, { &mixKnob, "MIX" } };
         for (const auto& k : kn)
         {

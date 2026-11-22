@@ -247,6 +247,27 @@ int main()
         check(std::abs(dbOf(run(off, 1.0, tone(50.0)).rms) - dbOf(run(flat(), 1.0, tone(50.0)).rms)) < 0.05, "EQ amount 0 is transparent");
     }
 
+    std::printf("PER-STAGE filter, output and mix\n");
+    {
+        auto sine = [&](double f, double amp) { return [f, amp, tw](double t) { return (float) (amp * std::sin(tw * f * t)); }; };
+        auto col = flat(); col.amt[nfvs::Color] = 100; col.mode[nfvs::Color] = 0; col.a[nfvs::Color] = false; col.b[nfvs::Color] = false;
+        const auto base = run(flat(), 1.0, sine(300.0, 0.5)), full = run(col, 1.0, sine(300.0, 0.5));
+        check(std::abs(dbOf(full.rms) - dbOf(base.rms)) > 0.1, "COLOR changes the signal at 100 % mix");
+        auto m0 = col; m0.stMix[nfvs::Color] = 0.0f;
+        check(std::abs(dbOf(run(m0, 1.0, sine(300.0, 0.5)).rms) - dbOf(base.rms)) < 0.05, "stage mix 0 % = the stage is bypassed");
+        auto og = flat(); og.stOut[nfvs::Tone] = 6.0f;
+        check(std::abs(dbOf(run(og, 1.0, sine(500.0, 0.2)).rms) - dbOf(run(flat(), 1.0, sine(500.0, 0.2)).rms) - 6.0) < 0.2, "stage output +6 dB raises the level by 6 dB");
+        auto tone = flat(); tone.amt[nfvs::Tone] = 100; tone.mode[nfvs::Tone] = 2;
+        auto toneHc = tone; toneHc.stHc[nfvs::Tone] = 2000.0f;
+        const double air = dbOf(run(tone, 1.0, sine(11000.0, 0.1)).rms) - dbOf(run(flat(), 1.0, sine(11000.0, 0.1)).rms);
+        const double airHc = dbOf(run(toneHc, 1.0, sine(11000.0, 0.1)).rms) - dbOf(run(flat(), 1.0, sine(11000.0, 0.1)).rms);
+        check(air > 3.0 && airHc < 1.0, "a stage high cut keeps the TONE air boost out of 11 kHz");
+        auto rv = flat(); rv.amt[nfvs::Reverb] = 100; rv.mode[nfvs::Reverb] = 2; rv.a[nfvs::Reverb] = false; rv.b[nfvs::Reverb] = false;
+        auto rvHc = rv; rvHc.stHc[nfvs::Reverb] = 2000.0f;
+        auto burst = [&](double t) { return t < 0.1 ? (float) (0.5 * std::sin(tw * 6000 * t)) : 0.0f; };
+        check(dbOf(run(rvHc, 1.5, burst, 0.5).rms) < dbOf(run(rv, 1.5, burst, 0.5).rms) - 6.0, "a high cut on REVERB darkens only the reverb tail");
+    }
+
     std::printf(bad ? "FAIL (%d problems)\n" : "OK\n", bad);
     return bad ? 1 : 0;
 }

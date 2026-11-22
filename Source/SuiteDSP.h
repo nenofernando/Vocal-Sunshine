@@ -13,6 +13,8 @@ namespace nfvs
 {
 struct Params
 {
+    Params() { for (int i = 0; i < kStages; ++i) { stLc[i] = 20.0f; stHc[i] = 20000.0f; stOut[i] = 0.0f; stMix[i] = 100.0f; } }
+    float stLc[kStages], stHc[kStages], stOut[kStages], stMix[kStages];   // per stage: low cut Hz (20 = off), high cut Hz (20000 = off), output dB, mix % of the stage's effect. FINISH uses the global controls.
     float amt[kStages] = {};          // 0..100
     int mode[kStages] = {};           // 0..2
     bool on[kStages] = {}, a[kStages] = {}, b[kStages] = {};
@@ -179,12 +181,13 @@ public:
 
     void reset()
     {
-        for (auto* b : { &deBp, &eqBq[0], &eqBq[1], &eqBq[2], &eqBq[3], &hLp, &lowcut, &lcB, &hcA, &hcB, &vHp, &vLp, &sibHp, &band[0], &band[1], &band[2], &warm, &clarCut, &clarBoost, &pres, &airShelf, &exHp, &thumpLp, &sendHp, &sendLp })
+        for (auto* b : { &sHp[0], &sHp[1], &sHp[2], &sHp[3], &sHp[4], &sHp[5], &sHp[6], &sHp[7], &sHp[8], &sHp[9], &sHp[10], &sHp[11], &sLp[0], &sLp[1], &sLp[2], &sLp[3], &sLp[4], &sLp[5], &sLp[6], &sLp[7], &sLp[8], &sLp[9], &sLp[10], &sLp[11], &deBp, &eqBq[0], &eqBq[1], &eqBq[2], &eqBq[3], &hLp, &lowcut, &lcB, &hcA, &hcB, &vHp, &vLp, &sibHp, &band[0], &band[1], &band[2], &warm, &clarCut, &clarBoost, &pres, &airShelf, &exHp, &thumpLp, &sendHp, &sendLp })
             b->reset();
         reverb.reset();
         std::fill(delayBuf[0].begin(), delayBuf[0].end(), 0.0f);
         std::fill(delayBuf[1].begin(), delayBuf[1].end(), 0.0f);
         std::fill(preBuf.begin(), preBuf.end(), 0.0f);
+        for (int i = 0; i < kStages; ++i) { sKey[i] = { -1.0f, -1.0f }; fxMixS[i] = 1.0f; fxOutS[i] = 1.0f; }
         envFullD = envDe = 0; gDe = 1.0f; deKey = { -1.0f, -1.0f };
         dw = 0; pw = 0; envFull = envSib = 0; gNoise = gSib = 1.0f; grDb = 0; duck = 0; dlyLp[0] = dlyLp[1] = 0;
         lofiHold[0] = lofiHold[1] = lofiHp[0] = lofiHp[1] = 0.0f; lofiCount = 0; dWob = 0.0f;
@@ -317,6 +320,31 @@ public:
             for (int b = 0; b < 4; ++b) { eqGs[b] = p.eqG[b] * eqA * ((b == 0 || b == 3) ? ta[Eq] : tb[Eq]); if (std::abs(eqGs[b]) > 0.01f) eqActive = true; }
             updateEq(p, eqGs);
 
+            // per-stage filter / output / mix of the stage's effect (FINISH is excluded: it carries the global controls)
+            for (int st = 0; st < Finish; ++st)
+            {
+                const float lc = p.stLc[st], hc = p.stHc[st], mixT = juce::jlimit(0.0f, 1.0f, p.stMix[st] / 100.0f), outT = juce::Decibels::decibelsToGain(p.stOut[st]);
+                fxLcOn[st] = lc > 21.0f; fxHcOn[st] = hc < 19500.0f;
+                fxMixS[st] += (mixT - fxMixS[st]) * 0.35f; fxOutS[st] += (outT - fxOutS[st]) * 0.35f;
+                fxAct[st] = fxLcOn[st] || fxHcOn[st] || std::abs(fxMixS[st] - 1.0f) > 0.002f || std::abs(fxOutS[st] - 1.0f) > 0.002f;
+                if (std::abs(lc - sKey[st][0]) > 0.5f || std::abs(hc - sKey[st][1]) > 0.5f)
+                {
+                    sKey[st] = { lc, hc };
+                    sHp[st].highPass(fs, std::max(20.0f, lc), 0.707); sLp[st].lowPass(fs, std::min(20000.0f, hc), 0.707);
+                }
+            }
+            float stIn[2] = { 0.0f, 0.0f };
+            auto stageFx = [&](int st, float (&xo)[2], const float (&xi)[2]) {
+                if (!fxAct[st]) return;
+                for (int ch = 0; ch < 2; ++ch)
+                {
+                    float d = xo[ch] - xi[ch];                       // what the stage did / added
+                    if (fxLcOn[st]) d = sHp[st].process(ch, d);
+                    if (fxHcOn[st]) d = sLp[st].process(ch, d);
+                    xo[ch] = (xi[ch] + d * fxMixS[st]) * fxOutS[st];
+                }
+            };
+
             float fxRed = 0.0f, grMax = 0.0f, deRedMax = 0.0f;
             for (int i = 0; i < c; ++i)
             {
@@ -328,6 +356,7 @@ public:
                 // ---------------- CLEAN
                 if (lcOn) for (int ch = 0; ch < 2; ++ch) x[ch] = lcB.process(ch, lowcut.process(ch, x[ch]));
                 if (hcOn) for (int ch = 0; ch < 2; ++ch) x[ch] = hcB.process(ch, hcA.process(ch, x[ch]));
+                stIn[0] = x[0]; stIn[1] = x[1];
                 const float lvl = std::max(std::abs(x[0]), std::abs(x[1]));
                 envFull += (lvl - envFull) * aEnv;
                 const float fullDb = toDb(envFull);
@@ -339,10 +368,12 @@ public:
                     x[0] *= gNoise; x[1] *= gNoise;
                 }
                 else gNoise = 1.0f;
+                stageFx(Clean, x, stIn);
                 tapPk[1][i] = std::max(std::abs(x[0]), std::abs(x[1]));
 
                 anBuf[0][(size_t) ((anPos + i) & kAnMask)] = 0.5f * (x[0] + x[1]);   // analyzer point 0: before FIX
 
+                stIn[0] = x[0]; stIn[1] = x[1];
                 // ---------------- FIX: three self-calibrating resonance cuts (boxy, nasal, harsh)
                 if (rsA > 0.002f || rsB > 0.002f)
                 {
@@ -366,16 +397,20 @@ public:
                     }
                 }
                 else for (int b = 0; b < 3; ++b) gBand[b] = 1.0f;
+                stageFx(Fix, x, stIn);
                 tapPk[2][i] = std::max(std::abs(x[0]), std::abs(x[1]));
 
                 anBuf[1][(size_t) ((anPos + i) & kAnMask)] = 0.5f * (x[0] + x[1]);   // point 1: after FIX / before EQ
 
+                stIn[0] = x[0]; stIn[1] = x[1];
                 // ---------------- EQ: low shelf, two bells, high shelf (drawn and dragged in the editor)
                 if (eqActive)
                     for (int ch = 0; ch < 2; ++ch) { float y = x[ch]; for (int b = 0; b < 4; ++b) y = eqBq[b].process(ch, y); x[ch] = y; }
+                stageFx(Eq, x, stIn);
                 tapPk[3][i] = std::max(std::abs(x[0]), std::abs(x[1]));
                 anBuf[2][(size_t) ((anPos + i) & kAnMask)] = 0.5f * (x[0] + x[1]);   // point 2: after EQ / before TONE
 
+                stIn[0] = x[0]; stIn[1] = x[1];
                 // ---------------- TONE
                 if (tn > 0.002f)
                     for (int ch = 0; ch < 2; ++ch)
@@ -386,9 +421,11 @@ public:
                         y = pres.process(ch, y);
                         x[ch] = airShelf.process(ch, y);
                     }
+                stageFx(Tone, x, stIn);
                 tapPk[4][i] = std::max(std::abs(x[0]), std::abs(x[1]));
                 anBuf[3][(size_t) ((anPos + i) & kAnMask)] = 0.5f * (x[0] + x[1]);   // point 3: after TONE
 
+                stIn[0] = x[0]; stIn[1] = x[1];
                 // ---------------- CONTROL: level rider (slow) then linked compressor
                 if (ct > 0.002f)
                 {
@@ -418,10 +455,12 @@ public:
                     x[0] *= g; x[1] *= g;
                 }
                 else { grDb = 0.0f; riderDb = 0.0f; riderLin = 1.0f; }
+                stageFx(Control, x, stIn);
                 tapPk[5][i] = std::max(std::abs(x[0]), std::abs(x[1]));
 
                 // ---------------- DE-ESSER (after the compressor, which tends to bring the sibilance up)
                 anBuf[4][(size_t) ((anPos + i) & kAnMask)] = 0.5f * (x[0] + x[1]);   // point 4: before DE-ESSER
+                stIn[0] = x[0]; stIn[1] = x[1];
                 if (de > 0.002f)
                 {
                     const float bpd[2] = { deBp.process(0, x[0]), deBp.process(1, x[1]) };
@@ -441,9 +480,11 @@ public:
                     else { x[0] -= bpd[0] * (1.0f - gDe); x[1] -= bpd[1] * (1.0f - gDe); }
                 }
                 else gDe = 1.0f;
+                stageFx(DeEss, x, stIn);
                 tapPk[6][i] = std::max(std::abs(x[0]), std::abs(x[1]));
                 anBuf[5][(size_t) ((anPos + i) & kAnMask)] = 0.5f * (x[0] + x[1]);   // point 5: after DE-ESSER
 
+                stIn[0] = x[0]; stIn[1] = x[1];
                 // ---------------- COLOR: tape / tube / exciter + optional sparkle and low thump (added terms are DC-blocked)
                 if (co > 0.002f)
                     for (int ch = 0; ch < 2; ++ch)
@@ -458,8 +499,10 @@ public:
                         dcX[ch] = term; dcY[ch] = dc;
                         x[ch] = v + dc;
                     }
+                stageFx(Color, x, stIn);
                 tapPk[7][i] = std::max(std::abs(x[0]), std::abs(x[1]));
 
+                stIn[0] = x[0]; stIn[1] = x[1];
                 // ---------------- VOICES: doubled / stacked / wide copies of the centre, low end kept mono, optional softening
                 const float midIn = 0.5f * (x[0] + x[1]);
                 vBuf[(size_t) vw] = midIn;
@@ -486,8 +529,10 @@ public:
                     x[0] += vGain * (wv[0] * vgL0 + wv[1] * vgL1);   // wv[0] = left copy, wv[1] = right copy, panned out to +-spread
                     x[1] += vGain * (wv[0] * vgR0 + wv[1] * vgR1);
                 }
+                stageFx(Voices, x, stIn);
                 tapPk[8][i] = std::max(std::abs(x[0]), std::abs(x[1]));
 
+                stIn[0] = x[0]; stIn[1] = x[1];
                 // ---------------- HARMONY: lead pitch tracker + up to six pitch-shifted copies (two crossfaded grains on the voice delay line)
                 if (hm > 0.002f)
                 {
@@ -514,6 +559,7 @@ public:
                 }
                 else { x[0] *= leadG; x[1] *= leadG; }
                 if (++vw >= vLen) vw = 0;
+                stageFx(Harmony, x, stIn);
                 tapPk[9][i] = std::max(std::abs(x[0]), std::abs(x[1]));
 
                 proc[0][i] = x[0]; proc[1][i] = x[1];
@@ -581,8 +627,9 @@ public:
                 const float gR = 1.0f - 0.45f * d * duckR, gD = 1.0f - 0.85f * d * duckD;
                 float y[2];
                 for (int ch = 0; ch < 2; ++ch) y[ch] = proc[ch][i] + revOut[ch][i] * rvGain * gR;
+                { const float pin[2] = { proc[0][i], proc[1][i] }; stageFx(Reverb, y, pin); }
                 tapPk[10][i] = std::max(std::abs(y[0]), std::abs(y[1]));
-                for (int ch = 0; ch < 2; ++ch) y[ch] += dOut[ch] * dlGain * gD;
+                { const float din[2] = { y[0], y[1] }; for (int ch = 0; ch < 2; ++ch) y[ch] += dOut[ch] * dlGain * gD; stageFx(Delay, y, din); }
                 tapPk[11][i] = std::max(std::abs(y[0]), std::abs(y[1]));
 
                 // ---------------- FINISH: drive into a soft clipper and a peak limiter at -1 dB
@@ -721,6 +768,10 @@ private:
     double fs = 44100.0;
     bool primed = false;
     Biquad deBp;
+    Biquad sHp[kStages], sLp[kStages];
+    std::array<float, 2> sKey[kStages];
+    float fxMixS[kStages], fxOutS[kStages];
+    bool fxAct[kStages] = {}, fxLcOn[kStages] = {}, fxHcOn[kStages] = {};
     std::array<float, 2> deKey { -1.0f, -1.0f };
     float envFullD = 0, envDe = 0, gDe = 1.0f;
     Biquad lowcut, lcB, hcA, hcB, vHp, vLp, sibHp, band[3], warm, clarCut, clarBoost, pres, airShelf, exHp, thumpLp, sendHp, sendLp;

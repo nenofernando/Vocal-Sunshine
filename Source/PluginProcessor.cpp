@@ -18,6 +18,8 @@ NFVocalSunshineAudioProcessor::NFVocalSunshineAudioProcessor()
     hkeyP = apvts.getRawParameterValue("hkey"); hleadP = apvts.getRawParameterValue("hlead");
     lofiP = apvts.getRawParameterValue("dlofi"); deP[0] = apvts.getRawParameterValue("desfreq"); deP[1] = apvts.getRawParameterValue("desmax");
     vspreadP = apvts.getRawParameterValue("vspread");
+    for (int s = 0; s < nfvs::Finish; ++s)
+        for (int k = 0; k < 4; ++k) stP[s][k] = apvts.getRawParameterValue(stageId(s, k == 0 ? "lc" : k == 1 ? "hc" : k == 2 ? "out" : "mix"));
     for (int b = 0; b < 4; ++b)
         for (int k = 0; k < 3; ++k) eqP[b][k] = apvts.getRawParameterValue("eq" + juce::String(b + 1) + "fgq"[k]);
     ctlP[0] = apvts.getRawParameterValue("ctlatk"); ctlP[1] = apvts.getRawParameterValue("ctlrel"); ctlP[2] = apvts.getRawParameterValue("ctlratio");
@@ -53,6 +55,7 @@ void NFVocalSunshineAudioProcessor::processBlock(juce::AudioBuffer<float>& buffe
     }
     prm.outputDb = outP->load(); prm.mix = mixP->load(); for (int v = 0; v < 6; ++v) prm.hv[v] = hvP[v]->load() > 0.5f;
     prm.hkey = juce::roundToInt(hkeyP->load()); prm.hLead = hleadP->load() > 0.5f;
+    for (int s = 0; s < nfvs::Finish; ++s) { prm.stLc[s] = stP[s][0]->load(); prm.stHc[s] = stP[s][1]->load(); prm.stOut[s] = stP[s][2]->load(); prm.stMix[s] = stP[s][3]->load(); }
     prm.dLofi = lofiP->load(); prm.deFreq = deP[0]->load(); prm.deMax = deP[1]->load();
     prm.vSpread = vspreadP->load();
     for (int b = 0; b < 4; ++b) { prm.eqF[b] = eqP[b][0]->load(); prm.eqG[b] = eqP[b][1]->load(); prm.eqQ[b] = eqP[b][2]->load(); }
@@ -103,6 +106,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout NFVocalSunshineAudioProcesso
         v.push_back(std::make_unique<juce::AudioParameterBool>(ID{ stageId(s, "on"), 1 }, cap + " On", true));
         v.push_back(std::make_unique<juce::AudioParameterBool>(ID{ stageId(s, "a"), 1 }, cap + " " + si.toggleA, si.defA));
         v.push_back(std::make_unique<juce::AudioParameterBool>(ID{ stageId(s, "b"), 1 }, cap + " " + si.toggleB, si.defB));
+        if (s != nfvs::Finish)   // every stage except FINISH has its own filter, level and mix (FINISH = the global controls)
+        {
+            juce::NormalisableRange<float> lcR(20.0f, 500.0f, 1.0f, 0.45f), hcR(2000.0f, 20000.0f, 10.0f, 0.5f);
+            v.push_back(std::make_unique<juce::AudioParameterFloat>(ID{ stageId(s, "lc"), 1 }, cap + " Low Cut", lcR, 20.0f, juce::AudioParameterFloatAttributes().withLabel("Hz")));
+            v.push_back(std::make_unique<juce::AudioParameterFloat>(ID{ stageId(s, "hc"), 1 }, cap + " High Cut", hcR, 20000.0f, juce::AudioParameterFloatAttributes().withLabel("Hz")));
+            v.push_back(std::make_unique<juce::AudioParameterFloat>(ID{ stageId(s, "out"), 1 }, cap + " Output", juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f), 0.0f, juce::AudioParameterFloatAttributes().withLabel("dB")));
+            v.push_back(std::make_unique<juce::AudioParameterFloat>(ID{ stageId(s, "mix"), 1 }, cap + " Mix", juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 100.0f, juce::AudioParameterFloatAttributes().withLabel("%")));
+        }
     }
     v.push_back(std::make_unique<juce::AudioParameterFloat>(ID{ "output", 1 }, "Output",
         juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f), 0.0f, juce::AudioParameterFloatAttributes().withLabel("dB")));
