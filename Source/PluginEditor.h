@@ -37,6 +37,7 @@ private:
     void stepPreset(int dir);
     void showPresetMenu();
     void setupValueTexts();
+    void leaveAutoKey();   // switch AUTO off, keeping the key and scale it had found
     void updateSpectrum();
     void drawSpectrum(juce::Graphics&, juce::Rectangle<float>, juce::Colour, bool);
     void drawVoices(juce::Graphics&, juce::Rectangle<float>, juce::Colour, bool);
@@ -60,7 +61,10 @@ private:
     juce::Rectangle<float> switchRow(int row) const { return row == 1 ? juce::Rectangle<float>(552.0f, 226.0f, 118.0f, 30.0f) : row == 2 ? juce::Rectangle<float>(674.0f, 226.0f, 118.0f, 30.0f) : juce::Rectangle<float>(); }   // option buttons A / B
     juce::Rectangle<float> harmChip(int col) const { const float cw = (waveRect().getWidth() - 20.0f) / 7.0f; return { waveRect().getX() + 10.0f + cw * (float) col + 5.0f, waveRect().getBottom() - 38.0f, cw - 10.0f, 26.0f }; }
     juce::Rectangle<float> knobStyleRect() const { return { 452.0f, 16.0f, 78.0f, 21.0f }; }
-    juce::Rectangle<float> keyRect() const { return { 552.0f, 292.0f, 240.0f, 36.0f }; }
+    juce::Rectangle<float> autoRect() const { return { 552.0f, 292.0f, 74.0f, 34.0f }; }      // HARMONY: AUTO key button
+    juce::Rectangle<float> keyRect() const { return { 632.0f, 292.0f, 100.0f, 34.0f }; }      // current key (click = choose by hand)
+    juce::Rectangle<float> resetRect() const { return { 738.0f, 292.0f, 54.0f, 34.0f }; }     // forget what AUTO heard
+    juce::Rectangle<float> statusRect() const { return { 552.0f, 330.0f, 240.0f, 30.0f }; }
 
     NFVocalSunshineAudioProcessor& proc;
     KnobLook look, smallLook;

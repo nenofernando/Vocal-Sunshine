@@ -13,6 +13,7 @@ nfvs::Params flat()
 {
     nfvs::Params p;
     for (int s = 0; s < nfvs::kStages; ++s) { p.amt[s] = 0.0f; p.mode[s] = 1; p.on[s] = true; p.a[s] = true; p.b[s] = true; }
+    p.hAuto = false;   // tests that need the AUTO key switch it on themselves
     return p;
 }
 
@@ -245,6 +246,50 @@ int main()
         check(dbOf(run(hiUp, 1.0, tone(12000.0)).rms) > dbOf(run(flat(), 1.0, tone(12000.0)).rms) + 6.0, "high shelf +10 dB lifts 12 kHz");
         auto off = lowUp; off.amt[nfvs::Eq] = 0;
         check(std::abs(dbOf(run(off, 1.0, tone(50.0)).rms) - dbOf(run(flat(), 1.0, tone(50.0)).rms)) < 0.05, "EQ amount 0 is transparent");
+    }
+
+    std::printf("HARMONY AUTO KEY: learns the key from sung notes\n");
+    {
+        auto melody = [&](const std::vector<int>& notes, bool autoOn, bool resetAfter, float* conf, float* secs) {
+            nfvs::Chain ch; ch.prepare(kFs);
+            auto p = flat(); p.hAuto = autoOn;
+            std::vector<float> l(480), r(480);
+            long n = 0; const double per = 0.4, len = 0.35;
+            const double total = (double) notes.size() * per;
+            for (long blk = 0; blk < (long) (total * kFs / 480); ++blk)
+            {
+                for (int i = 0; i < 480; ++i, ++n)
+                {
+                    const double t = (double) n / kFs; const size_t k = std::min(notes.size() - 1, (size_t) (t / per)); const double lt = t - (double) k * per;
+                    float v = 0.0f;
+                    if (lt < len)
+                    {
+                        const double f = 440.0 * std::pow(2.0, (notes[k] - 69) / 12.0), env = std::min(1.0, lt / 0.02) * std::min(1.0, (len - lt) / 0.02);
+                        v = (float) (0.3 * env * (std::sin(tw * f * t) + 0.4 * std::sin(tw * 2 * f * t) + 0.2 * std::sin(tw * 3 * f * t)));
+                    }
+                    l[(size_t) i] = r[(size_t) i] = v;
+                }
+                ch.process(l.data(), r.data(), 480, p);
+            }
+            if (resetAfter) { ch.requestKeyReset(); l.assign(480, 0.0f); r.assign(480, 0.0f); ch.process(l.data(), r.data(), 480, p); }
+            if (conf) *conf = ch.autoConfidenceNow();
+            if (secs) *secs = ch.autoSecondsNow();
+            return ch.autoKeyNow();
+        };
+        const std::vector<int> gMajor = { 55, 59, 62, 67, 62, 59, 55, 57, 59, 62, 59, 57, 55, 64, 62, 59, 55, 55, 62, 67, 66, 64, 62, 59, 55 };
+        const std::vector<int> aMinor = { 57, 60, 64, 60, 57, 59, 60, 62, 64, 60, 57, 64, 65, 64, 62, 60, 59, 57, 57, 64, 60, 57, 62, 60, 57 };
+        float conf = 0, secs = 0;
+        const int kG = melody(gMajor, true, false, &conf, &secs);
+        std::printf("   G major melody -> key %d (7 = G major), confidence %.2f, %.1f s heard\n", kG, conf, secs);
+        check(kG == 7, "a G major melody is read as G major");
+        check(conf > 0.4f && secs > 5.0f, "with a sensible confidence after several seconds");
+        const int kA = melody(aMinor, true, false, &conf, &secs);
+        std::printf("   A minor melody -> key %d (21 = A minor), confidence %.2f\n", kA, conf);
+        check(kA == 21, "an A minor melody is read as A minor");
+        check(melody(gMajor, false, false, nullptr, nullptr) == -1, "AUTO off: nothing is learned");
+        check(melody(gMajor, true, true, nullptr, nullptr) == -1, "RESET forgets the key");
+        const std::vector<int> few = { 55, 59, 62 };
+        check(melody(few, true, false, nullptr, nullptr) == -1, "too little singing: no answer yet");
     }
 
     std::printf("PER-STAGE filter, output and mix\n");

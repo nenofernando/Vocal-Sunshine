@@ -272,6 +272,18 @@ void NFVocalSunshineAudioProcessorEditor::showPresetMenu()
                     [this](int r) { if (r > 0) proc.applyPreset(r - 1); });
 }
 
+void NFVocalSunshineAudioProcessorEditor::leaveAutoKey()
+{
+    const int k = proc.chainRef().autoKeyNow();
+    if (k >= 0)
+    {
+        setChoice("hkey", k % 12);
+        const auto modeId = NFVocalSunshineAudioProcessor::stageId(nfvs::Harmony, "mode");
+        if (juce::roundToInt(pv(modeId)) != 2) setChoice(modeId, k >= 12 ? 1 : 0);
+    }
+    if (pv("hauto") > 0.5f) toggleBool("hauto");
+}
+
 void NFVocalSunshineAudioProcessorEditor::toggleBool(const juce::String& id)
 {
     if (auto* prm = proc.apvts.getParameter(id))
@@ -337,8 +349,11 @@ void NFVocalSunshineAudioProcessorEditor::mouseDown(const juce::MouseEvent& e)
             if (kColToHv[c] >= 0 && harmChip(c).contains(pos)) { toggleBool("hv" + juce::String(kColToHv[c] + 1)); return; }
             if (kColToHv[c] < 0 && harmChip(c).contains(pos)) { toggleBool("hlead"); return; }   // LEAD chip: mute / unmute the main voice
         }
+        if (autoRect().contains(pos)) { if (pv("hauto") > 0.5f) leaveAutoKey(); else toggleBool("hauto"); return; }
+        if (resetRect().contains(pos)) { proc.resetAutoKey(); return; }
         if (keyRect().contains(pos))
         {
+            if (pv("hauto") > 0.5f) leaveAutoKey();   // choosing by hand: start from what AUTO found
             juce::PopupMenu m;
             static const char* kKeys[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
             const int cur = juce::roundToInt(pv(keyId()));
@@ -349,7 +364,7 @@ void NFVocalSunshineAudioProcessorEditor::mouseDown(const juce::MouseEvent& e)
         }
     }
     for (int i = 0; i < 3; ++i)
-        if (modeRect(i).contains(pos)) { setChoice(sid("mode"), i); if (stage == nfvs::Eq) applyEqCurve(i); return; }
+        if (modeRect(i).contains(pos)) { if (stage == nfvs::Harmony && pv("hauto") > 0.5f) leaveAutoKey(); setChoice(sid("mode"), i); if (stage == nfvs::Eq) applyEqCurve(i); return; }
     if (switchRow(1).contains(pos)) { toggleBool(sid("a")); return; }
     if (switchRow(2).contains(pos)) { toggleBool(sid("b")); return; }
 }
@@ -707,7 +722,8 @@ void NFVocalSunshineAudioProcessorEditor::paint(juce::Graphics& g)
 
     // ---- STYLE: segmented selector
     recess(juce::Rectangle<float>(180.0f, 224.0f, 366.0f, 34.0f), 7.0f);
-    const int mode = juce::jlimit(0, 2, juce::roundToInt(pv(sid("mode"))));
+    int mode = juce::jlimit(0, 2, juce::roundToInt(pv(sid("mode"))));
+    if (stage == nfvs::Harmony && pv("hauto") > 0.5f && chain.autoKeyNow() >= 0 && mode != 2) mode = chain.autoKeyNow() >= 12 ? 1 : 0;   // AUTO shows the scale it found
     for (int i = 0; i < 3; ++i)
     {
         const auto r = modeRect(i);
@@ -819,11 +835,46 @@ void NFVocalSunshineAudioProcessorEditor::paint(juce::Graphics& g)
     else if (stage == nfvs::Harmony)
     {
         static const char* kKeys[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
-        const auto kr = keyRect();
-        recess(kr, 6.0f);
-        g.setColour(kMuted); g.setFont(font(9.5f, true)); g.drawText("KEY", kr.withTrimmedLeft(16.0f), juce::Justification::centredLeft);
-        g.setColour(accent); g.setFont(font(16.0f, true));
-        g.drawText(kKeys[juce::jlimit(0, 11, juce::roundToInt(pv(keyId())))], kr.withTrimmedRight(16.0f), juce::Justification::centredRight);
+        const bool autoOn = pv("hauto") > 0.5f;
+        const int ak = chain.autoKeyNow();
+        const bool known = autoOn && ak >= 0;
+        // AUTO button
+        {
+            const auto r = autoRect();
+            g.setGradientFill(juce::ColourGradient(juce::Colour(autoOn ? 0xff45484f : 0xff2e3035), 0, r.getY(), juce::Colour(autoOn ? 0xff2c2e33 : 0xff1c1d20), 0, r.getBottom(), false));
+            g.fillRoundedRectangle(r, 6.0f);
+            g.setColour(juce::Colour(0xaa000000)); g.drawRoundedRectangle(r.reduced(0.5f), 6.0f, 1.2f);
+            g.setColour(juce::Colour(0x30ffffff)); g.drawLine(r.getX() + 6.0f, r.getY() + 1.5f, r.getRight() - 6.0f, r.getY() + 1.5f, 1.0f);
+            if (autoOn) glow(r.getX() + 13.0f, r.getCentreY(), 3.6f, accent); else { g.setColour(juce::Colour(0xff0e0f10)); g.fillEllipse(r.getX() + 9.0f, r.getCentreY() - 4.0f, 8.0f, 8.0f); }
+            g.setColour(autoOn ? kText : kMuted); g.setFont(font(10.0f, true));
+            g.drawText("AUTO", r.withTrimmedLeft(24.0f), juce::Justification::centredLeft);
+        }
+        // key window
+        {
+            const auto kr = keyRect();
+            recess(kr, 6.0f);
+            g.setColour(kMuted); g.setFont(font(9.0f, true)); g.drawText("KEY", kr.withTrimmedLeft(12.0f), juce::Justification::centredLeft);
+            juce::String v = known ? juce::String(kKeys[ak % 12]) + (ak >= 12 ? "m" : "") : autoOn ? juce::String("--") : juce::String(kKeys[juce::jlimit(0, 11, juce::roundToInt(pv(keyId())))]);
+            g.setFont(font(16.0f, true)); g.setColour(autoOn && !known ? kMuted : accent);
+            g.drawText(v, kr.withTrimmedRight(12.0f), juce::Justification::centredRight);
+        }
+        // reset button
+        {
+            const auto r = resetRect();
+            recess(r, 6.0f);
+            g.setColour(autoOn ? kText : juce::Colour(0xff55575e)); g.setFont(font(9.0f, true));
+            g.drawText("RESET", r, juce::Justification::centred);
+        }
+        // status line
+        {
+            g.setFont(font(10.0f, true));
+            juce::String txt;
+            if (!autoOn) txt = "Key chosen by hand";
+            else if (!known) txt = "LISTENING...  " + juce::String(juce::jmin(chain.autoSecondsNow(), 3.0f), 1) + " / 3 s of singing";
+            else txt = juce::String(kKeys[ak % 12]) + (ak >= 12 ? " MINOR" : " MAJOR") + "   -   " + juce::String(juce::roundToInt(chain.autoConfidenceNow() * 100.0f)) + " % sure";
+            g.setColour(known ? accent : kMuted);
+            g.drawText(txt, statusRect(), juce::Justification::centred);
+        }
     }
     else
     {

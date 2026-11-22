@@ -20,6 +20,7 @@ struct Params
     bool on[kStages] = {}, a[kStages] = {}, b[kStages] = {};
     float outputDb = 0.0f, mix = 100.0f;
     float eqF[4] = { 120.0f, 400.0f, 3000.0f, 10000.0f }, eqG[4] = {}, eqQ[4] = { 1.0f, 1.0f, 1.0f, 1.0f };   // EQ: low shelf, 2 bells, high shelf
+    bool hAuto = true;                // HARMONY: learn the key from the voice (same profiles and confidence as Mixa's key reading)
     bool hLead = true;                // HARMONY: false = mute the lead and keep only the interval voices
     bool hv[6] = {};                  // harmony intervals: -8ve, -3rd, +3rd, +5th, +6th, +8ve
     int hkey = 0;                     // harmony key, 0 = C
@@ -101,7 +102,8 @@ struct PitchTracker
     double fs = 48000.0;
     int decim = 4, w = 0, since = 0, decCount = 0, unvoicedFrames = 100;
     float decAcc = 0.0f, midi = 60.0f, period = 0.0f;   // midi = last detected note (fractional), period in samples of the original rate
-    bool voiced = false;
+    bool voiced = false, fresh = false;   // fresh = this frame produced a new pitch reading
+    int frames = 0;
     float buf[1024] = {};
 
     void prepare(double sr) { fs = sr; decim = std::max(1, (int) std::lround(fs / 12000.0)); reset(); }
@@ -117,6 +119,7 @@ struct PitchTracker
 
     void detect()
     {
+        ++frames; fresh = false;
         constexpr int W = 512;
         const double fsd = fs / (double) decim;
         const int minTau = std::max(2, (int) (fsd / 800.0)), maxTau = std::min((int) (fsd / 70.0), 1024 - W - 1);
@@ -141,7 +144,7 @@ struct PitchTracker
         const float f = (float) (fsd / tauF);
         const float m = 69.0f + 12.0f * std::log2(f / 440.0f);
         midi = (voiced && std::abs(m - midi) < 3.0f) ? midi + (m - midi) * 0.5f : m;
-        period = tauF * (float) decim; voiced = true; unvoicedFrames = 0;
+        period = tauF * (float) decim; voiced = true; unvoicedFrames = 0; fresh = true;
     }
 };
 
@@ -196,7 +199,7 @@ public:
         dcX[0] = dcX[1] = dcY[0] = dcY[1] = 0;
         std::fill(vBuf.begin(), vBuf.end(), 0.0f); vw = 0; lfo1 = 0; lfo2 = 1.3f;
         for (int v = 0; v < 6; ++v) { hPhase[v] = 0.0f; hSemi[v] = 0.0f; hPrev[v] = false; }
-        trkH.reset(); leadOut.store(-1.0f); leadG = 1.0f;
+        trkH.reset(); leadOut.store(-1.0f); leadG = 1.0f; resetKeyLearning(); keyFramesSeen = 0;
         colCount = 0; for (auto& v : colPk) v = 0;
     }
 
@@ -286,6 +289,10 @@ public:
             const float hGain = hm * 2.6f / std::sqrt((float) std::max(1, nAct));   // at 100 % each voice is about 5 dB louder than the lead
             leadG += (((!p.hLead && nAct > 0) ? 0.0f : 1.0f) - leadG) * 0.35f;       // lead muted only while at least one interval voice is on
             const bool hSpread = ta[Harmony] > 0.5f, hSoft = tb[Harmony] > 0.5f;
+            const bool hTrack = hm > 0.002f || p.hAuto;                       // the tracker also runs for AUTO key, even with the harmony amount at 0
+            const int autoK = autoKeyOut.load(std::memory_order_relaxed);
+            const bool useAuto = p.hAuto && autoK >= 0;                        // FIXED keeps plain semitones, otherwise the detected major / minor wins
+            const int effKey = useAuto ? autoK % 12 : p.hkey, effMode = useAuto && mHar != 2 ? (autoK >= 12 ? 1 : 0) : mHar;
             float hL[6], hR[6], hRatio[6];
             if (trkH.voiced && trkH.period > 1.0f)
             {   // the two crossfaded grains are half a grain apart: make that a whole number of pitch periods so they add in phase
@@ -298,7 +305,7 @@ public:
                 static const float kPan[6] = { 0.0f, -0.55f, 0.55f, -0.85f, 0.85f, 0.0f };
                 const float ang = ((hSpread ? kPan[v] : 0.0f) + 1.0f) * juce::MathConstants<float>::pi * 0.25f;
                 hL[v] = std::cos(ang); hR[v] = std::sin(ang);
-                const float target = harmonyShift(v, mHar, p.hkey);
+                const float target = harmonyShift(v, effMode, effKey);
                 if (hAct[v] && !hPrev[v]) hSemi[v] = target; else hSemi[v] += (target - hSemi[v]) * 0.3f;
                 hPrev[v] = hAct[v];
                 hRatio[v] = std::pow(2.0f, hSemi[v] / 12.0f);
@@ -534,9 +541,9 @@ public:
 
                 stIn[0] = x[0]; stIn[1] = x[1];
                 // ---------------- HARMONY: lead pitch tracker + up to six pitch-shifted copies (two crossfaded grains on the voice delay line)
+                if (hTrack) trkH.push(midIn);
                 if (hm > 0.002f)
                 {
-                    trkH.push(midIn);
                     float wl = 0.0f, wr = 0.0f;
                     for (int v = 0; v < 6; ++v)
                         if (hAct[v])
@@ -685,6 +692,9 @@ public:
                 }
             }
 
+            if (autoResetReq.exchange(false)) resetKeyLearning();
+            if (p.hAuto) { if (trkH.frames != keyFramesSeen) { keyFramesSeen = trkH.frames; if (trkH.fresh) learnKey(trkH.midi); } }
+            else keyFramesSeen = trkH.frames;
             leadOut.store(trkH.voiced ? trkH.midi : -1.0f, std::memory_order_relaxed);
             if (toDb(envFull) > -75.0f) infoMax[Clean] = std::max(infoMax[Clean], -toDb(gNoise));   // silence closing the gate is not worth showing
             infoMax[Fix] = std::max(infoMax[Fix], fxRed);
@@ -704,6 +714,11 @@ public:
         const int end = anPub.load(std::memory_order_acquire);
         for (int k = 0; k < n; ++k) out[k] = anBuf[pt][(size_t) ((end - n + k) & kAnMask)];
     }
+    // learned key of the voice: tonic (0 = C) + 12 for minor, -1 = not enough singing yet; confidence 0..1; seconds of singing heard
+    int autoKeyNow() const { return autoKeyOut.load(std::memory_order_relaxed); }
+    float autoConfidenceNow() const { return autoConfOut.load(std::memory_order_relaxed); }
+    float autoSecondsNow() const { return autoSecOut.load(std::memory_order_relaxed); }
+    void requestKeyReset() { autoResetReq.store(true); }
     float leadMidiNow() const { return leadOut.load(std::memory_order_relaxed); }   // detected note of the lead (MIDI), -1 = none
     float infoAt(int s) const { return info[s].load(std::memory_order_relaxed); }
 
@@ -724,6 +739,55 @@ private:
         const int td = best + kDeg[v];
         const int oct = (int) std::floor((double) td / 7.0), dd = ((td % 7) + 7) % 7;
         return (float) (12 * oct + sc[dd] - sc[best]);
+    }
+
+    // Key learning: pitch-class histogram of the sung notes, correlated with the 24 Aarden-Essen key profiles (the same profiles and the same
+    // confidence formula as Mixa's key reading, which works on the whole mix; here only the voice is heard).
+    void resetKeyLearning()
+    {
+        for (auto& c : chroma) c = 0.0;
+        keySeconds = 0.0; keyFrameCount = 0;
+        autoKeyOut.store(-1); autoConfOut.store(0.0f); autoSecOut.store(0.0f);
+    }
+
+    void learnKey(float midi)
+    {
+        const double rounded = std::round((double) midi), dev = std::abs((double) midi - rounded);
+        for (auto& c : chroma) c *= 0.99988;                                   // slow forgetting (half-life about a minute) so a key change can be followed
+        keySeconds += 128.0 * (double) trkH.decim / fs;
+        if (dev <= 0.4)
+        {
+            const int pc = (((int) rounded) % 12 + 12) % 12;
+            chroma[pc] += 1.0 - 1.2 * dev;
+        }
+        autoSecOut.store((float) keySeconds, std::memory_order_relaxed);
+        if (++keyFrameCount % 40 == 0) estimateKey();
+    }
+
+    void estimateKey()
+    {
+        if (keySeconds < 3.0) { autoKeyOut.store(-1); autoConfOut.store(0.0f); return; }
+        static const double maj[] = { 17.7661, 0.145624, 14.9265, 0.160186, 19.8049, 11.3587, 0.291248, 22.062, 0.145624, 8.15494, 0.232998, 4.95122 };
+        static const double min[] = { 18.2648, 0.737619, 14.0502, 16.8599, 0.702494, 14.4362, 0.702494, 18.6161, 4.56621, 1.93186, 7.37619, 1.75623 };
+        auto corr = [&](const double* prof, int shift) {
+            double mx = 0, mp = 0;
+            for (int i = 0; i < 12; ++i) { mx += chroma[i]; mp += prof[i]; }
+            mx /= 12; mp /= 12;
+            double num = 0, dx = 0, dp = 0;
+            for (int i = 0; i < 12; ++i) { const double a = chroma[(i + shift) % 12] - mx, b = prof[i] - mp; num += a * b; dx += a * a; dp += b * b; }
+            return dx > 0 && dp > 0 ? num / std::sqrt(dx * dp) : 0.0;
+        };
+        double best = -2.0, second = -2.0; int tonic = -1; bool minor = false;
+        for (int t = 0; t < 12; ++t)
+            for (int mode = 0; mode < 2; ++mode)
+            {
+                const double c = corr(mode == 0 ? maj : min, t);
+                if (c > best) { second = best; best = c; tonic = t; minor = mode == 1; }
+                else if (c > second) second = c;
+            }
+        if (tonic < 0) return;
+        autoKeyOut.store(tonic + (minor ? 12 : 0), std::memory_order_relaxed);
+        autoConfOut.store((float) juce::jlimit(0.0, 1.0, (best - second) * 5.0 + 0.3), std::memory_order_relaxed);
     }
 
     void updateDeEss(float f, float q)
@@ -788,6 +852,11 @@ private:
     float hPhase[6] = {}, hSemi[6] = {}, hLen = 1440.0f;
     bool hPrev[6] = {};
     PitchTracker trkH;
+    double chroma[12] = {}, keySeconds = 0.0;
+    int keyFrameCount = 0, keyFramesSeen = 0;
+    std::atomic<int> autoKeyOut { -1 };
+    std::atomic<float> autoConfOut { 0.0f }, autoSecOut { 0.0f };
+    std::atomic<bool> autoResetReq { false };
     float leadG = 1.0f;
     Biquad eqBq[4];
     std::array<float, 10> eqKey {};
