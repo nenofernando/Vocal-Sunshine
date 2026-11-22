@@ -13,6 +13,7 @@ public:
     void mouseDoubleClick(const juce::MouseEvent&) override;
     void mouseDrag(const juce::MouseEvent&) override;
     void mouseUp(const juce::MouseEvent&) override;
+    void mouseMove(const juce::MouseEvent&) override;
     void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
     static constexpr int kBaseW = 810, kBaseH = 500;
@@ -69,7 +70,8 @@ private:
     juce::Image logo, logoScaled, brushed;
     int stage = 0;
     bool bypassed = false;
-    bool draggingSpread = false;
+    bool draggingSpread = false, draggingDeFreq = false;
+    void setDeFreqFromX(float x);
     unsigned lastBlocks = 0; int idleTicks = 0; bool idle = false;
     float infoNow(int s) const { return idle ? 0.0f : proc.chainRef().infoAt(s); }
     int dragBand = -1, selBand = 1;

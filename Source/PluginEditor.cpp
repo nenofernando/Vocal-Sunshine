@@ -299,6 +299,11 @@ void NFVocalSunshineAudioProcessorEditor::mouseDown(const juce::MouseEvent& e)
         }
         return;
     }
+    if (stage == nfvs::DeEss && waveRect().contains(pos))   // drag the band sideways to choose its frequency
+    {
+        if (auto* prm = proc.apvts.getParameter("desfreq")) prm->beginChangeGesture();
+        draggingDeFreq = true; setDeFreqFromX(pos.x); return;
+    }
     if (stage == nfvs::Voices && waveRect().contains(pos))
     {
         if (auto* prm = proc.apvts.getParameter("vspread")) prm->beginChangeGesture();
@@ -339,6 +344,21 @@ void NFVocalSunshineAudioProcessorEditor::mouseDown(const juce::MouseEvent& e)
     if (switchRow(2).contains(pos)) { toggleBool(sid("b")); return; }
 }
 
+// Dragging in the DE-ESSER display moves the controlled band along the (logarithmic) frequency axis.
+void NFVocalSunshineAudioProcessorEditor::setDeFreqFromX(float x)
+{
+    const auto r = waveRect().reduced(14.0f, 12.0f);
+    const float hz = 30.0f * std::pow(600.0f, juce::jlimit(0.0f, 1.0f, (x - r.getX()) / r.getWidth()));
+    if (auto* prm = proc.apvts.getParameter("desfreq")) prm->setValueNotifyingHost(prm->convertTo0to1(hz));
+}
+
+void NFVocalSunshineAudioProcessorEditor::mouseMove(const juce::MouseEvent& e)
+{
+    const bool over = waveRect().contains(e.position / scale());
+    setMouseCursor(over && (stage == nfvs::DeEss || stage == nfvs::Voices) ? juce::MouseCursor::LeftRightResizeCursor
+                   : over && stage == nfvs::Eq ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+}
+
 // Dragging in the VOICES display sets how far the left / right copies open (distance of the dots from the centre).
 void NFVocalSunshineAudioProcessorEditor::setSpreadFromX(float x)
 {
@@ -350,12 +370,18 @@ void NFVocalSunshineAudioProcessorEditor::setSpreadFromX(float x)
 
 void NFVocalSunshineAudioProcessorEditor::mouseDrag(const juce::MouseEvent& e)
 {
+    if (draggingDeFreq) { setDeFreqFromX(e.position.x / scale()); return; }
     if (dragBand >= 0) setEqFromPos(dragBand, e.position / scale());
     else if (draggingSpread) setSpreadFromX(e.position.x / scale());
 }
 
 void NFVocalSunshineAudioProcessorEditor::mouseUp(const juce::MouseEvent&)
 {
+    if (draggingDeFreq)
+    {
+        draggingDeFreq = false;
+        if (auto* prm = proc.apvts.getParameter("desfreq")) prm->endChangeGesture();
+    }
     if (dragBand >= 0)
     {
         for (const char* k : { "f", "g" }) if (auto* prm = proc.apvts.getParameter("eq" + juce::String(dragBand + 1) + k)) prm->endChangeGesture();
@@ -384,6 +410,11 @@ void NFVocalSunshineAudioProcessorEditor::mouseWheelMove(const juce::MouseEvent&
 
 void NFVocalSunshineAudioProcessorEditor::mouseDoubleClick(const juce::MouseEvent& e)
 {
+    if (stage == nfvs::DeEss && waveRect().contains(e.position / scale()))
+    {
+        if (auto* prm = proc.apvts.getParameter("desfreq")) { prm->beginChangeGesture(); prm->setValueNotifyingHost(prm->getDefaultValue()); prm->endChangeGesture(); }
+        return;
+    }
     if (stage == nfvs::Eq && waveRect().contains(e.position / scale()))
     {
         const int b = eqNodeAt(e.position / scale());
@@ -978,6 +1009,16 @@ void NFVocalSunshineAudioProcessorEditor::drawDeEss(juce::Graphics& g, juce::Rec
     const auto col = modOn ? accent : juce::Colour(0xff6b6f77);
     g.setColour(col.withAlpha(0.14f)); g.fillRect(x0, r.getY(), x1 - x0, r.getHeight());
     g.setColour(col.withAlpha(0.7f)); g.drawVerticalLine((int) xOf(f), r.getY(), r.getBottom());
+    {   // grab handle: drag sideways to choose the frequency
+        const float hx = xOf(f), hy = r.getY() + 16.0f;
+        g.setColour(col.withAlpha(0.28f)); g.fillEllipse(hx - 13.0f, hy - 13.0f, 26.0f, 26.0f);
+        g.setColour(col); g.fillEllipse(hx - 7.0f, hy - 7.0f, 14.0f, 14.0f);
+        g.setColour(juce::Colour(0xff0f1012));
+        juce::Path l, rr; l.addTriangle(hx - 2.0f, hy - 3.2f, hx - 2.0f, hy + 3.2f, hx - 5.2f, hy); rr.addTriangle(hx + 2.0f, hy - 3.2f, hx + 2.0f, hy + 3.2f, hx + 5.2f, hy);
+        g.fillPath(l); g.fillPath(rr);
+    }
+    g.setFont(font(9.0f)); g.setColour(kMuted);
+    g.drawText("Drag the band sideways to choose the frequency  (double-click = 6.5 kHz)", juce::Rectangle<float>(wp.getX() + 14.0f, wp.getY() + 32.0f, 380.0f, 12.0f), juce::Justification::centredLeft);
     g.setFont(font(9.5f, true)); g.setColour(col);
     g.drawText(juce::String(f / 1000.0f, 1) + " kHz", juce::Rectangle<float>(xOf(f) - 36.0f, r.getBottom() - 24.0f, 72.0f, 12.0f), juce::Justification::centred);
     g.setColour(kText);
