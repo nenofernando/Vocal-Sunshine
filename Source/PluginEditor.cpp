@@ -721,21 +721,37 @@ void NFVocalSunshineAudioProcessorEditor::paint(juce::Graphics& g)
             for (int i = 1; i < cols; ++i) env.lineTo(x0 + dx * (float) i, cy - hs[(size_t) i]);
             for (int i = cols - 1; i >= 0; --i) env.lineTo(x0 + dx * (float) i, cy + hs[(size_t) i]);
             env.closeSubPath();
-            const auto wc = lane == 0 ? juce::Colour(0xfff1f3f8) : (modOn ? accent : juce::Colour(0xff7a7e86));
+            const auto wc = lane == 0 ? juce::Colour(0xff7df3ff) : (modOn ? accent : juce::Colour(0xff7a7e86));   // original = ice-blue neon, after = the stage's neon colour
             juce::Path topEdge, botEdge;   // outline = the two long edges only (no vertical line at the ends)
             topEdge.startNewSubPath(x0, cy - hs[0]); botEdge.startNewSubPath(x0, cy + hs[0]);
             for (int i = 1; i < cols; ++i) { topEdge.lineTo(x0 + dx * (float) i, cy - hs[(size_t) i]); botEdge.lineTo(x0 + dx * (float) i, cy + hs[(size_t) i]); }
-            if (lane == 1 && modOn) { g.setColour(wc.withAlpha(0.14f)); g.strokePath(topEdge, juce::PathStrokeType(6.0f, juce::PathStrokeType::curved)); g.strokePath(botEdge, juce::PathStrokeType(6.0f, juce::PathStrokeType::curved)); }   // neon glow
-            g.setGradientFill(juce::ColourGradient(wc.withAlpha(0.50f), lr.getX(), 0.0f, wc.withAlpha(0.95f), lr.getRight(), 0.0f, false));   // older audio on the left is a little dimmer
+            const bool lit = lane == 0 || modOn;   // neon glow (wide and soft, then tight and strong) on both lanes
+            if (lit)
+            {
+                for (auto* edge : { &topEdge, &botEdge })
+                {
+                    g.setColour(wc.withAlpha(lane == 1 ? 0.20f : 0.14f)); g.strokePath(*edge, juce::PathStrokeType(9.0f, juce::PathStrokeType::curved));
+                    g.setColour(wc.withAlpha(lane == 1 ? 0.38f : 0.26f)); g.strokePath(*edge, juce::PathStrokeType(4.0f, juce::PathStrokeType::curved));
+                }
+            }
+            g.setGradientFill(juce::ColourGradient(wc.withAlpha(0.78f), lr.getX(), 0.0f, wc.withAlpha(1.0f), lr.getRight(), 0.0f, false));   // saturated, older audio only slightly dimmer
             g.fillPath(env);
-            juce::Path core = env; core.applyTransform(juce::AffineTransform::translation(0.0f, -cy).scaled(1.0f, 0.55f).translated(0.0f, cy));
-            g.setColour(juce::Colours::white.withAlpha(lane == 0 ? 0.20f : 0.16f)); g.fillPath(core);                                          // lighter core for depth
-            g.setColour(wc.brighter(0.5f).withAlpha(0.95f));      // crisp outline
-            g.strokePath(topEdge, juce::PathStrokeType(1.3f, juce::PathStrokeType::curved)); g.strokePath(botEdge, juce::PathStrokeType(1.3f, juce::PathStrokeType::curved));
+            juce::Path core = env; core.applyTransform(juce::AffineTransform::translation(0.0f, -cy).scaled(1.0f, 0.5f).translated(0.0f, cy));
+            g.setColour(wc.brighter(0.7f).withAlpha(0.32f)); g.fillPath(core);                                                                 // hot core in a lighter tint of the same neon
+            g.setColour(wc.brighter(0.6f));      // bright neon outline
+            g.strokePath(topEdge, juce::PathStrokeType(1.6f, juce::PathStrokeType::curved)); g.strokePath(botEdge, juce::PathStrokeType(1.6f, juce::PathStrokeType::curved));
         }
-        g.setFont(font(9.0f, true));
-        g.setColour(juce::Colour(0xffc6cad2)); g.drawText("ORIGINAL", juce::Rectangle<float>(wp.getX() + 14.0f, wp.getY() + 8.0f, 120.0f, 12.0f), juce::Justification::centredLeft);
-        g.setColour(accent); g.drawText(juce::String("AFTER ") + si.name, juce::Rectangle<float>(wp.getX() + 14.0f, wp.getY() + 16.0f + laneH, 200.0f, 12.0f), juce::Justification::centredLeft);
+        {
+            const float laneHh = (wp.getHeight() - 24.0f) * 0.5f;
+            const juce::Font lf = font(9.0f, true);
+            auto label = [&](const juce::String& txt, float y, juce::Colour col) {
+                const float tw2 = textW(lf, txt);
+                g.setColour(juce::Colour(0xff0c0d0f).withAlpha(0.78f)); g.fillRoundedRectangle(wp.getX() + 11.0f, y - 1.0f, tw2 + 10.0f, 14.0f, 3.0f);
+                g.setFont(lf); g.setColour(col); g.drawText(txt, juce::Rectangle<float>(wp.getX() + 16.0f, y, tw2 + 4.0f, 12.0f), juce::Justification::centredLeft);
+            };
+            label("ORIGINAL", wp.getY() + 8.0f, juce::Colour(0xff7df3ff));
+            label(juce::String("AFTER ") + si.name, wp.getY() + 16.0f + laneHh, accent);
+        }
     }
     if (stage == nfvs::Control)
     {
