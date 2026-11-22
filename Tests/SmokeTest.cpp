@@ -89,12 +89,22 @@ int main()
         const auto v0 = run(flat(), 2.0, voice), v1 = run(p, 2.0, voice);
         check(dbOf(v1.rms) > dbOf(v0.rms) - 1.0, "loud voice loses < 1 dB");
     }
-    std::printf("FIX: harsh S reduced\n");
+    std::printf("DE-ESSER: harsh S reduced, frequency respected, LISTEN solos the band\n");
     {
-        auto p = flat(); p.amt[nfvs::Fix] = 100; p.mode[nfvs::Fix] = 2;
-        auto s = [&](double t) { const double burst = std::fmod(t, 0.5) < 0.12 ? 1.0 : 0.0; return (float) (0.3 * (0.5 + 0.5 * std::sin(tw * 2.0 * t)) * std::sin(tw * 200 * t) + 0.12 * burst * std::sin(tw * 7500 * t)); };
-        const auto a = run(flat(), 3.0, s), b = run(p, 3.0, s, 0.3, nfvs::Fix);
-        check(dbOf(b.rms) < dbOf(a.rms) - 0.3 && b.grMax > 1.0, "de-esser cuts a sibilant burst");
+        auto p = flat(); p.amt[nfvs::DeEss] = 100; p.mode[nfvs::DeEss] = 1; p.a[nfvs::DeEss] = false; p.deFreq = 7500.0f; p.deMax = 12.0f;
+        auto s = [&](double t) { const double ph = std::fmod(t, 0.5); const double burst = ph < 0.12 ? std::pow(std::sin(juce::MathConstants<double>::pi * ph / 0.12), 2.0) : 0.0;   // smooth envelope, like a real S
+                         return (float) (0.3 * (1.0 - 0.9 * burst) * (0.5 + 0.5 * std::sin(tw * 2.0 * t)) * std::sin(tw * 200 * t) + 0.15 * burst * std::sin(tw * 7500 * t)); };   // the voice dips while the S rises
+        const auto a = run(flat(), 3.0, s), b = run(p, 3.0, s, 0.3, nfvs::DeEss);
+        check(dbOf(b.rms) < dbOf(a.rms) - 0.05 && b.grMax > 3.0, "cuts a sibilant burst at 7.5 kHz by more than 3 dB");
+        auto far = p; far.deFreq = 3000.0f; far.mode[nfvs::DeEss] = 0;   // narrow band far from the 7.5 kHz sibilance
+        const auto c = run(far, 3.0, s, 0.3, nfvs::DeEss);
+        check(c.grMax < b.grMax - 2.0, "a narrow detector set far from the sibilance cuts less");
+        auto lis = p; lis.a[nfvs::DeEss] = true;
+        auto low = [&](double t) { return (float) (0.3 * std::sin(tw * 200 * t)); };
+        check(dbOf(run(lis, 1.0, low).rms) < dbOf(run(flat(), 1.0, low).rms) - 30.0, "LISTEN removes everything outside the band");
+        auto fix = flat(); fix.amt[nfvs::Fix] = 100;
+        auto hiss = [&](double t) { return (float) (0.12 * std::sin(tw * 7500 * t)); };
+        check(std::abs(dbOf(run(fix, 1.0, hiss).rms) - dbOf(run(flat(), 1.0, hiss).rms)) < 1.0, "FIX no longer de-esses");
     }
     std::printf("TONE: bright style lifts the highs\n");
     {

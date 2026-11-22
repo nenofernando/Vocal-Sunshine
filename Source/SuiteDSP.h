@@ -22,6 +22,7 @@ struct Params
     bool hv[6] = {};                  // harmony intervals: -8ve, -3rd, +3rd, +5th, +6th, +8ve
     int hkey = 0;                     // harmony key, 0 = C
     float vSpread = 100.0f;           // VOICES: how far the left / right copies open, 0..100 %
+    float deFreq = 6500.0f, deMax = 8.0f;   // DE-ESSER: centre frequency (Hz) and maximum cut (dB)
     float ctlAtk = 50.0f, ctlRel = 50.0f, ctlRatio = 50.0f;   // compressor trims, 0..100 (50 = the style's own value)
     float lowcutHz = 20.0f, highcutHz = 20000.0f;   // 20 Hz / 20 kHz = off
     double bpm = 120.0;
@@ -144,7 +145,7 @@ struct PitchTracker
 class Chain
 {
 public:
-    static constexpr int kChunk = 512, kHist = 256, kTaps = 12;   // tap 0 = input, tap k = after stage k
+    static constexpr int kChunk = 512, kHist = 256, kTaps = 13;   // tap 0 = input, tap k = after stage k
 
     void prepare(double sampleRate)
     {
@@ -177,12 +178,13 @@ public:
 
     void reset()
     {
-        for (auto* b : { &eqBq[0], &eqBq[1], &eqBq[2], &eqBq[3], &hLp, &lowcut, &lcB, &hcA, &hcB, &vHp, &vLp, &sibHp, &band[0], &band[1], &band[2], &warm, &clarCut, &clarBoost, &pres, &airShelf, &exHp, &thumpLp, &sendHp, &sendLp })
+        for (auto* b : { &deBp, &eqBq[0], &eqBq[1], &eqBq[2], &eqBq[3], &hLp, &lowcut, &lcB, &hcA, &hcB, &vHp, &vLp, &sibHp, &band[0], &band[1], &band[2], &warm, &clarCut, &clarBoost, &pres, &airShelf, &exHp, &thumpLp, &sendHp, &sendLp })
             b->reset();
         reverb.reset();
         std::fill(delayBuf[0].begin(), delayBuf[0].end(), 0.0f);
         std::fill(delayBuf[1].begin(), delayBuf[1].end(), 0.0f);
         std::fill(preBuf.begin(), preBuf.end(), 0.0f);
+        envFullD = envDe = 0; gDe = 1.0f; deKey = { -1.0f, -1.0f };
         dw = 0; pw = 0; envFull = envSib = 0; gNoise = gSib = 1.0f; grDb = 0; duck = 0; dlyLp[0] = dlyLp[1] = 0;
         delaySmoothed = -1.0f; riderDb = 0; riderLin = 1.0f; rmsEnv = 0; gLim = 1.0f;
         for (int b = 0; b < 3; ++b) { envB[b] = 0; avgRel[b] = -18.0f; gBand[b] = 1.0f; }
@@ -239,13 +241,20 @@ public:
             const float dnThr = -68.0f + 22.0f * cl + 3.0f * (float) mClean;
             // FIX
             static const float kFixScale[3] = { 0.6f, 1.0f, 1.4f };
-            const float ds = fx * ta[Fix] * kFixScale[mFix], rs = fx * tb[Fix] * kFixScale[mFix];
+            const float rsA = fx * ta[Fix] * kFixScale[mFix], rsB = fx * tb[Fix] * kFixScale[mFix];   // A: boxy + nasal bands, B: harsh band
             // CONTROL
             static const float kRatio[3] = { 2.2f, 3.5f, 6.0f }, kAtk[3] = { 0.015f, 0.024f, 0.006f }, kRel[3] = { 0.22f, 0.13f, 0.09f };
             const float ratio = juce::jlimit(1.2f, 20.0f, kRatio[mCtl] * std::pow(2.0f, (p.ctlRatio - 50.0f) / 50.0f));
             const float atk = tc(kAtk[mCtl] * std::pow(4.0f, (p.ctlAtk - 50.0f) / 50.0f)), rel = tc(kRel[mCtl] * std::pow(4.0f, (p.ctlRel - 50.0f) / 50.0f));
             const float thr = -9.0f - 22.0f * ct, knee = 8.0f;
             const float makeup = toGain(ta[Control] * 0.6f * -thr * (1.0f - 1.0f / ratio) * std::min(1.0f, ct * 8.0f));
+            // DE-ESSER: band-pass detector + subtractive cut around the chosen frequency
+            const float de = e[DeEss];
+            static const float kDeQ[3] = { 2.5f, 1.4f, 0.8f };
+            const bool deListen = ta[DeEss] > 0.5f && de > 0.002f;
+            const float deRelC = tc(tb[DeEss] > 0.5f ? 0.06f : 0.02f);
+            const float deOffset = 18.0f - 12.0f * de, deMaxCut = p.deMax * std::min(1.0f, de * 4.0f);
+            updateDeEss(p.deFreq, kDeQ[juce::jlimit(0, 2, p.mode[DeEss])]);
             // COLOR
             const float driveTape = 1.0f + 3.0f * co, driveTube = 1.0f + 2.5f * co, tubeBias = 0.12f * co;
             const float exW = ((mCol == 2 ? 0.8f : 0.0f) + 0.35f * ta[Color]) * co, thumpW = tb[Color] * co * 0.25f;
@@ -300,7 +309,7 @@ public:
             for (int b = 0; b < 4; ++b) { eqGs[b] = p.eqG[b] * eqA * ((b == 0 || b == 3) ? ta[Eq] : tb[Eq]); if (std::abs(eqGs[b]) > 0.01f) eqActive = true; }
             updateEq(p, eqGs);
 
-            float fxRed = 0.0f, grMax = 0.0f;
+            float fxRed = 0.0f, grMax = 0.0f, deRedMax = 0.0f;
             for (int i = 0; i < c; ++i)
             {
                 float x[2] = { L[i], R[i] };
@@ -326,21 +335,8 @@ public:
 
                 anBuf[0][(size_t) ((anPos + i) & kAnMask)] = 0.5f * (x[0] + x[1]);   // analyzer point 0: before FIX
 
-                // ---------------- FIX: de-esser, then three self-calibrating resonance cuts
-                const float hs[2] = { sibHp.process(0, x[0]), sibHp.process(1, x[1]) };
-                const float sib = std::max(std::abs(hs[0]), std::abs(hs[1]));
-                envSib += (sib - envSib) * (sib > envSib ? aSibAtk : aSibRel);
-                if (ds > 0.001f)
-                {
-                    const float rel2 = 20.0f * std::log10((envSib + 1e-9f) / (envFull + 1e-9f));
-                    const float excess = fullDb > -55.0f ? std::max(0.0f, rel2 + 13.0f) : 0.0f;
-                    const float red = std::min(11.0f * ds, excess * 1.3f * ds);
-                    fxRed = std::max(fxRed, red);
-                    gSib += (toGain(-red) - gSib) * 0.02f;
-                    for (int ch = 0; ch < 2; ++ch) x[ch] -= hs[ch] * (1.0f - gSib);
-                }
-                else gSib = 1.0f;
-                if (rs > 0.002f)
+                // ---------------- FIX: three self-calibrating resonance cuts (boxy, nasal, harsh)
+                if (rsA > 0.002f || rsB > 0.002f)
                 {
                     float bp[3][2];
                     for (int b = 0; b < 3; ++b) for (int ch = 0; ch < 2; ++ch) bp[b][ch] = band[b].process(ch, x[ch]);
@@ -349,11 +345,12 @@ public:
                         const float pk = std::max(std::abs(bp[b][0]), std::abs(bp[b][1]));
                         envB[b] += (pk - envB[b]) * (pk > envB[b] ? aBAtk : aBRel);
                         const float relDb = 20.0f * std::log10((envB[b] + 1e-9f) / (envFull + 1e-9f));
+                        const float rsb = b < 2 ? rsA : rsB;
                         float red = 0.0f;
                         if (fullDb > -50.0f)
                         {
                             avgRel[b] += (relDb - avgRel[b]) * aAvg;
-                            red = std::min(6.0f * rs, std::max(0.0f, relDb - (avgRel[b] + 2.0f)) * 0.8f);
+                            red = std::min(6.0f * rsb, std::max(0.0f, relDb - (avgRel[b] + 2.0f)) * 0.8f);
                         }
                         fxRed = std::max(fxRed, red);
                         gBand[b] += (toGain(-red) - gBand[b]) * 0.02f;
@@ -415,6 +412,30 @@ public:
                 else { grDb = 0.0f; riderDb = 0.0f; riderLin = 1.0f; }
                 tapPk[5][i] = std::max(std::abs(x[0]), std::abs(x[1]));
 
+                // ---------------- DE-ESSER (after the compressor, which tends to bring the sibilance up)
+                anBuf[4][(size_t) ((anPos + i) & kAnMask)] = 0.5f * (x[0] + x[1]);   // point 4: before DE-ESSER
+                if (de > 0.002f)
+                {
+                    const float bpd[2] = { deBp.process(0, x[0]), deBp.process(1, x[1]) };
+                    { const float lvD = std::max(std::abs(x[0]), std::abs(x[1])); envFullD += (lvD - envFullD) * (lvD > envFullD ? aSibAtk : aSibRel); }
+                    const float pkB = std::max(std::abs(bpd[0]), std::abs(bpd[1]));
+                    envDe += (pkB - envDe) * (pkB > envDe ? aSibAtk : aSibRel);
+                    float red = 0.0f;
+                    if (toDb(envFullD) > -55.0f)
+                    {
+                        const float relD = 20.0f * std::log10((envDe + 1e-9f) / (envFullD + 1e-9f));
+                        red = std::min(deMaxCut, std::max(0.0f, relD + deOffset) * 1.6f);
+                    }
+                    deRedMax = std::max(deRedMax, red);
+                    const float tgD = toGain(-red);
+                    gDe += (tgD - gDe) * (tgD < gDe ? aSibAtk : deRelC);
+                    if (deListen) { x[0] = bpd[0]; x[1] = bpd[1]; }   // LISTEN: hear the band that is being controlled
+                    else { x[0] -= bpd[0] * (1.0f - gDe); x[1] -= bpd[1] * (1.0f - gDe); }
+                }
+                else gDe = 1.0f;
+                tapPk[6][i] = std::max(std::abs(x[0]), std::abs(x[1]));
+                anBuf[5][(size_t) ((anPos + i) & kAnMask)] = 0.5f * (x[0] + x[1]);   // point 5: after DE-ESSER
+
                 // ---------------- COLOR: tape / tube / exciter + optional sparkle and low thump (added terms are DC-blocked)
                 if (co > 0.002f)
                     for (int ch = 0; ch < 2; ++ch)
@@ -429,7 +450,7 @@ public:
                         dcX[ch] = term; dcY[ch] = dc;
                         x[ch] = v + dc;
                     }
-                tapPk[6][i] = std::max(std::abs(x[0]), std::abs(x[1]));
+                tapPk[7][i] = std::max(std::abs(x[0]), std::abs(x[1]));
 
                 // ---------------- VOICES: doubled / stacked / wide copies of the centre, low end kept mono, optional softening
                 const float midIn = 0.5f * (x[0] + x[1]);
@@ -457,7 +478,7 @@ public:
                     x[0] += vGain * (wv[0] * vgL0 + wv[1] * vgL1);   // wv[0] = left copy, wv[1] = right copy, panned out to +-spread
                     x[1] += vGain * (wv[0] * vgR0 + wv[1] * vgR1);
                 }
-                tapPk[7][i] = std::max(std::abs(x[0]), std::abs(x[1]));
+                tapPk[8][i] = std::max(std::abs(x[0]), std::abs(x[1]));
 
                 // ---------------- HARMONY: lead pitch tracker + up to six pitch-shifted copies (two crossfaded grains on the voice delay line)
                 if (hm > 0.002f)
@@ -485,7 +506,7 @@ public:
                 }
                 else { x[0] *= leadG; x[1] *= leadG; }
                 if (++vw >= vLen) vw = 0;
-                tapPk[8][i] = std::max(std::abs(x[0]), std::abs(x[1]));
+                tapPk[9][i] = std::max(std::abs(x[0]), std::abs(x[1]));
 
                 proc[0][i] = x[0]; proc[1][i] = x[1];
 
@@ -539,9 +560,9 @@ public:
                 const float gR = 1.0f - 0.45f * d * duckR, gD = 1.0f - 0.85f * d * duckD;
                 float y[2];
                 for (int ch = 0; ch < 2; ++ch) y[ch] = proc[ch][i] + revOut[ch][i] * rvGain * gR;
-                tapPk[9][i] = std::max(std::abs(y[0]), std::abs(y[1]));
-                for (int ch = 0; ch < 2; ++ch) y[ch] += dOut[ch] * dlGain * gD;
                 tapPk[10][i] = std::max(std::abs(y[0]), std::abs(y[1]));
+                for (int ch = 0; ch < 2; ++ch) y[ch] += dOut[ch] * dlGain * gD;
+                tapPk[11][i] = std::max(std::abs(y[0]), std::abs(y[1]));
 
                 // ---------------- FINISH: drive into a soft clipper and a peak limiter at -1 dB
                 if (limActive)
@@ -585,8 +606,8 @@ public:
             // ---- history columns (20 ms): peak of every tap
             for (int i = 0; i < c; ++i)
             {
-                for (int t = 0; t < 11; ++t) colPk[t] = std::max(colPk[t], tapPk[t][i]);
-                colPk[11] = std::max(colPk[11], finPk[i]);
+                for (int t = 0; t < 12; ++t) colPk[t] = std::max(colPk[t], tapPk[t][i]);
+                colPk[12] = std::max(colPk[12], finPk[i]);
                 if (++colCount >= colLen)
                 {
                     const int pos = histPos.load(std::memory_order_relaxed);
@@ -600,6 +621,7 @@ public:
             infoMax[Clean] = std::max(infoMax[Clean], -toDb(gNoise));
             infoMax[Fix] = std::max(infoMax[Fix], fxRed);
             infoMax[Control] = std::max(infoMax[Control], grMax);
+            infoMax[DeEss] = std::max(infoMax[DeEss], deRedMax);
             infoMax[Finish] = std::max(infoMax[Finish], -toDb(limMin));
             done += c;
         }
@@ -636,6 +658,13 @@ private:
         return (float) (12 * oct + sc[dd] - sc[best]);
     }
 
+    void updateDeEss(float f, float q)
+    {
+        if (std::abs(f - deKey[0]) < 1.0f && std::abs(q - deKey[1]) < 0.001f) return;
+        deKey = { f, q };
+        deBp.bandPass(fs, f, q);
+    }
+
     void updateEq(const Params& p, const float* gains)
     {
         const std::array<float, 10> key { p.eqF[0], p.eqF[1], p.eqF[2], p.eqF[3], gains[0], gains[1], gains[2], gains[3], p.eqQ[1], p.eqQ[2] };
@@ -670,6 +699,9 @@ private:
 
     double fs = 44100.0;
     bool primed = false;
+    Biquad deBp;
+    std::array<float, 2> deKey { -1.0f, -1.0f };
+    float envFullD = 0, envDe = 0, gDe = 1.0f;
     Biquad lowcut, lcB, hcA, hcB, vHp, vLp, sibHp, band[3], warm, clarCut, clarBoost, pres, airShelf, exHp, thumpLp, sendHp, sendLp;
     std::array<float, 8> lastKey {};
     float e[kStages] = {}, ta[kStages] = {}, tb[kStages] = {};
@@ -690,13 +722,13 @@ private:
     std::atomic<float> leadOut { -1.0f };
     float dlyLp[2] = { 0, 0 }, delaySmoothed = -1.0f;
     juce::Reverb reverb;
-    float dry[2][kChunk], proc[2][kChunk], send[2][kChunk], revIn[kChunk], revOut[2][kChunk], duckBuf[kChunk], tapPk[11][kChunk], finPk[kChunk];
+    float dry[2][kChunk], proc[2][kChunk], send[2][kChunk], revIn[kChunk], revOut[2][kChunk], duckBuf[kChunk], tapPk[12][kChunk], finPk[kChunk];
     int colLen = 960, colCount = 0;
     float colPk[kTaps] = {};
     std::atomic<float> hist[kTaps][kHist];
     std::atomic<int> histPos { 0 };
     static constexpr int kAnMask = 4095;
-    float anBuf[4][kAnMask + 1] = {};
+    float anBuf[6][kAnMask + 1] = {};
     int anPos = 0;
     std::atomic<int> anPub { 0 };
     std::atomic<float> info[kStages];
