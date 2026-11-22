@@ -25,7 +25,13 @@ juce_add_binary_data(NFVocalSunshineAssets HEADER_NAME NFVocalSunshineBinaryData
 set(VS_SOURCES Source/PluginProcessor.cpp Source/PluginEditor.cpp)
 set(VS_DEFS JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0 JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_REPORT_APP_USAGE=0 VS_LICENSE_ENFORCE=$<BOOL:${NFVocalSunshine_LICENSE}>)
 
+# cross-compiling for Windows on the Mac: the VST3 manifest helper is a Windows program and cannot run here, so skip it
+set(vs_manifest TRUE)
+if(CMAKE_CROSSCOMPILING AND WIN32)
+ set(vs_manifest FALSE)
+endif()
 juce_add_plugin(NFVocalSunshine
+ VST3_AUTO_MANIFEST ${vs_manifest}
  COMPANY_NAME "NF Audio Tools"
  COMPANY_COPYRIGHT "NF Audio Tools by Nenno Fernando. (C) 2026 NF Audio Tools. All rights reserved."
  BUNDLE_ID "com.nfaudiotools.nfvocalsunshine"
@@ -43,7 +49,10 @@ juce_generate_juce_header(NFVocalSunshine)
 target_sources(NFVocalSunshine PRIVATE ${VS_SOURCES})
 target_compile_definitions(NFVocalSunshine PUBLIC ${VS_DEFS})
 target_link_libraries(NFVocalSunshine PRIVATE NFVocalSunshineAssets juce::juce_audio_utils juce::juce_dsp juce::juce_cryptography
- PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
+ PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+if(NOT (CMAKE_CROSSCOMPILING AND WIN32))   # the Windows cross build uses a clang newer than its lld, so link-time optimisation objects cannot be linked
+ target_link_libraries(NFVocalSunshine PUBLIC juce::juce_recommended_lto_flags)
+endif()
 
 if(NFVocalSunshine_BUILD_TOOLS)
  foreach(tool Snapshot SmokeTest KeyTool LicenseCheck)
