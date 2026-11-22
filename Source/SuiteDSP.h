@@ -25,6 +25,7 @@ struct Params
     bool hv[6] = {};                  // harmony intervals: -8ve, -3rd, +3rd, +5th, +6th, +8ve
     int hkey = 0;                     // harmony key, 0 = C
     float vSpread = 100.0f;           // VOICES: how far the left / right copies open, 0..100 %
+    float dFeedback = 38.0f;          // DELAY: feedback 0..95 %
     float dLofi = 0.0f;               // DELAY: lo-fi amount 0..100 (dirtier and darker repeats)
     float deFreq = 6500.0f, deMax = 8.0f;   // DE-ESSER: centre frequency (Hz) and maximum cut (dB)
     float ctlAtk = 50.0f, ctlRel = 50.0f, ctlRatio = 50.0f;   // compressor trims, 0..100 (50 = the style's own value)
@@ -167,7 +168,7 @@ public:
         for (int b = 0; b < 3; ++b) band[b].bandPass(fs, bf[b], bq[b]);
         vLen = (int) (fs * 0.08) + 4; vBuf.assign((size_t) vLen, 0.0f);
         vHp.highPass(fs, 250.0, 0.707); vLp.lowPass(fs, 5000.0, 0.707); hLp.lowPass(fs, 5000.0, 0.707);
-        trkH.prepare(fs); hLen = 0.03f * (float) fs;
+        trkH.prepare(fs); prepareKeyLearning(); hLen = 0.03f * (float) fs;
         eqKey.fill(-1000.0f);
         exHp.highPass(fs, 4000.0, 0.707);
         thumpLp.lowPass(fs, 140.0, 0.707);
@@ -199,7 +200,7 @@ public:
         dcX[0] = dcX[1] = dcY[0] = dcY[1] = 0;
         std::fill(vBuf.begin(), vBuf.end(), 0.0f); vw = 0; lfo1 = 0; lfo2 = 1.3f;
         for (int v = 0; v < 6; ++v) { hPhase[v] = 0.0f; hSemi[v] = 0.0f; hPrev[v] = false; }
-        trkH.reset(); leadOut.store(-1.0f); leadG = 1.0f; resetKeyLearning(); keyFramesSeen = 0;
+        trkH.reset(); leadOut.store(-1.0f); leadG = 1.0f; resetKeyLearning();
         colCount = 0; for (auto& v : colPk) v = 0;
     }
 
@@ -277,7 +278,7 @@ public:
             const float srK = 48000.0f / (float) fs;
             const float hpA = (0.003f + 0.04f * lofi) * srK, lpA = std::max(0.05f, (0.45f - 0.39f * lofi) * srK), satK = 1.0f + 2.5f * lofi;
             const float wobInc = 2.0f * juce::MathConstants<float>::pi * 0.55f / (float) fs, wobDepth = lofi * 0.0014f * (float) fs;
-            const float fb = 0.38f;
+            const float fb = juce::jlimit(0.0f, 0.95f, p.dFeedback / 100.0f);   // user feedback (38 % = the old fixed value)
             // VOICES
             const bool vLow = ta[Voices] > 0.5f, vSoft = tb[Voices] > 0.5f;
             const float vInc1 = 2.0f * juce::MathConstants<float>::pi * 0.35f / (float) fs, vInc2 = 2.0f * juce::MathConstants<float>::pi * 0.27f / (float) fs;
@@ -542,6 +543,7 @@ public:
                 stIn[0] = x[0]; stIn[1] = x[1];
                 // ---------------- HARMONY: lead pitch tracker + up to six pitch-shifted copies (two crossfaded grains on the voice delay line)
                 if (hTrack) trkH.push(midIn);
+                if (p.hAuto) keyPush(midIn);
                 if (hm > 0.002f)
                 {
                     float wl = 0.0f, wr = 0.0f;
@@ -693,8 +695,6 @@ public:
             }
 
             if (autoResetReq.exchange(false)) resetKeyLearning();
-            if (p.hAuto) { if (trkH.frames != keyFramesSeen) { keyFramesSeen = trkH.frames; if (trkH.fresh) learnKey(trkH.midi); } }
-            else keyFramesSeen = trkH.frames;
             leadOut.store(trkH.voiced ? trkH.midi : -1.0f, std::memory_order_relaxed);
             if (toDb(envFull) > -75.0f) infoMax[Clean] = std::max(infoMax[Clean], -toDb(gNoise));   // silence closing the gate is not worth showing
             infoMax[Fix] = std::max(infoMax[Fix], fxRed);
@@ -717,8 +717,10 @@ public:
     // learned key of the voice: tonic (0 = C) + 12 for minor, -1 = not enough singing yet; confidence 0..1; seconds of singing heard
     int autoKeyNow() const { return autoKeyOut.load(std::memory_order_relaxed); }
     float autoConfidenceNow() const { return autoConfOut.load(std::memory_order_relaxed); }
+    int autoAlternativeNow() const { return autoAltOut.load(std::memory_order_relaxed); }   // close runner-up key (same coding) or -1
     float autoSecondsNow() const { return autoSecOut.load(std::memory_order_relaxed); }
     void requestKeyReset() { autoResetReq.store(true); }
+    void copyKeyHistogram(double* out12) const { for (int i = 0; i < 12; ++i) out12[i] = chroma[i]; }   // for diagnostics
     float leadMidiNow() const { return leadOut.load(std::memory_order_relaxed); }   // detected note of the lead (MIDI), -1 = none
     float infoAt(int s) const { return info[s].load(std::memory_order_relaxed); }
 
@@ -741,32 +743,56 @@ private:
         return (float) (12 * oct + sc[dd] - sc[best]);
     }
 
-    // Key learning: pitch-class histogram of the sung notes, correlated with the 24 Aarden-Essen key profiles (the same profiles and the same
-    // confidence formula as Mixa's key reading, which works on the whole mix; here only the voice is heard).
+    // Key learning = Mixa's key reading (Analysis.h, detectKey), computed on the signal this plug-in hears:
+    // 4096-point FFT every 2048 samples, sqrt of the magnitude of every bin between 65 Hz and 2 kHz that sits within 0.3 semitone of a note
+    // is added to that note's pitch class, and the 12-note energy is correlated with the 24 Aarden-Essen profiles.
+    // The reading accumulates from the start (very slow forgetting) until RESET.
     void resetKeyLearning()
     {
         for (auto& c : chroma) c = 0.0;
-        keySeconds = 0.0; keyFrameCount = 0;
-        autoKeyOut.store(-1); autoConfOut.store(0.0f); autoSecOut.store(0.0f);
+        keySeconds = 0.0; keyFrameCount = 0; kHave = 0; kHop = 0;
+        std::fill(kRing.begin(), kRing.end(), 0.0f);
+        autoKeyOut.store(-1); autoConfOut.store(0.0f); autoSecOut.store(0.0f); autoAltOut.store(-1);
     }
 
-    void learnKey(float midi)
+    void prepareKeyLearning()
     {
-        const double rounded = std::round((double) midi), dev = std::abs((double) midi - rounded);
-        for (auto& c : chroma) c *= 0.99988;                                   // slow forgetting (half-life about a minute) so a key change can be followed
-        keySeconds += 128.0 * (double) trkH.decim / fs;
-        if (dev <= 0.4)
+        kRing.assign(kKeyN, 0.0f); kWin.resize(kKeyN); kBinPc.assign(kKeyN / 2, -1);
+        for (int i = 0; i < kKeyN; ++i) kWin[(size_t) i] = 0.5f - 0.5f * std::cos(2.0f * juce::MathConstants<float>::pi * (float) i / (float) kKeyN);
+        const double binHz = fs / kKeyN;
+        for (int b = 1; b < kKeyN / 2; ++b)
         {
-            const int pc = (((int) rounded) % 12 + 12) % 12;
-            chroma[pc] += 1.0 - 1.2 * dev;
+            const double f = b * binHz;
+            if (f < 65.0 || f > 2000.0) continue;
+            const double midi = 69.0 + 12.0 * std::log2(f / 440.0);
+            if (std::abs(midi - std::round(midi)) > 0.3) continue;            // between two notes: skipped, as in Mixa
+            kBinPc[(size_t) b] = (((int) std::lround(midi)) % 12 + 12) % 12;
         }
+        kFftData.assign((size_t) kKeyN * 2, 0.0f);
+    }
+
+    void keyPush(float v)
+    {
+        kRing[(size_t) kPosW] = v; kPosW = (kPosW + 1) % kKeyN;
+        if (kHave < kKeyN) ++kHave;
+        if (++kHop < kKeyN / 2 || kHave < kKeyN) return;
+        kHop = 0;
+        double e = 0.0;
+        for (int i = 0; i < kKeyN; ++i) { const float x = kRing[(size_t) ((kPosW + i) % kKeyN)]; kFftData[(size_t) i] = x * kWin[(size_t) i]; e += (double) x * x; }
+        if (std::sqrt(e / kKeyN) < 0.0003) return;                          // digital silence adds nothing
+        std::fill(kFftData.begin() + kKeyN, kFftData.end(), 0.0f);
+        kFft.performFrequencyOnlyForwardTransform(kFftData.data());
+        const double decay = std::pow(0.5, (double) (kKeyN / 2) / fs / 600.0);   // half-life ten minutes
+        for (auto& c : chroma) c *= decay;
+        for (int b = 1; b < kKeyN / 2; ++b) if (kBinPc[(size_t) b] >= 0) chroma[kBinPc[(size_t) b]] += std::sqrt((double) kFftData[(size_t) b]);
+        keySeconds += (double) (kKeyN / 2) / fs;
         autoSecOut.store((float) keySeconds, std::memory_order_relaxed);
-        if (++keyFrameCount % 40 == 0) estimateKey();
+        if (++keyFrameCount % 8 == 0) estimateKey();
     }
 
     void estimateKey()
     {
-        if (keySeconds < 3.0) { autoKeyOut.store(-1); autoConfOut.store(0.0f); return; }
+        if (keySeconds < 6.0) { autoKeyOut.store(-1); autoConfOut.store(0.0f); autoAltOut.store(-1); return; }
         static const double maj[] = { 17.7661, 0.145624, 14.9265, 0.160186, 19.8049, 11.3587, 0.291248, 22.062, 0.145624, 8.15494, 0.232998, 4.95122 };
         static const double min[] = { 18.2648, 0.737619, 14.0502, 16.8599, 0.702494, 14.4362, 0.702494, 18.6161, 4.56621, 1.93186, 7.37619, 1.75623 };
         auto corr = [&](const double* prof, int shift) {
@@ -774,20 +800,23 @@ private:
             for (int i = 0; i < 12; ++i) { mx += chroma[i]; mp += prof[i]; }
             mx /= 12; mp /= 12;
             double num = 0, dx = 0, dp = 0;
-            for (int i = 0; i < 12; ++i) { const double a = chroma[(i + shift) % 12] - mx, b = prof[i] - mp; num += a * b; dx += a * a; dp += b * b; }
+            for (int i = 0; i < 12; ++i) { const double a2 = chroma[(i + shift) % 12] - mx, b2 = prof[i] - mp; num += a2 * b2; dx += a2 * a2; dp += b2 * b2; }
             return dx > 0 && dp > 0 ? num / std::sqrt(dx * dp) : 0.0;
         };
-        double best = -2.0, second = -2.0; int tonic = -1; bool minor = false;
-        for (int t = 0; t < 12; ++t)
-            for (int mode = 0; mode < 2; ++mode)
-            {
-                const double c = corr(mode == 0 ? maj : min, t);
-                if (c > best) { second = best; best = c; tonic = t; minor = mode == 1; }
-                else if (c > second) second = c;
-            }
-        if (tonic < 0) return;
-        autoKeyOut.store(tonic + (minor ? 12 : 0), std::memory_order_relaxed);
-        autoConfOut.store((float) juce::jlimit(0.0, 1.0, (best - second) * 5.0 + 0.3), std::memory_order_relaxed);
+        double cs[24]; int order[24];
+        for (int t = 0; t < 12; ++t) { cs[t] = corr(maj, t); cs[12 + t] = corr(min, t); }   // index = tonic + 12 * minor
+        for (int i = 0; i < 24; ++i) order[i] = i;
+        std::sort(order, order + 24, [&](int x, int y) { return cs[x] > cs[y]; });
+        int best = order[0], second = order[1];
+        const int cur = autoKeyOut.load(std::memory_order_relaxed);
+        if (cur >= 0 && best != cur && cs[best] - cs[cur] < 0.04) { second = best; best = cur; }   // hysteresis: only change when the new key is clearly better
+        else if (best == cur) second = order[1];
+        const double gap = cs[best] - cs[second == best ? order[1] : second];
+        // Mixa's formula, then scaled by how much singing has been heard (little evidence = low confidence)
+        const double evidence = juce::jlimit(0.0, 1.0, keySeconds / 30.0);
+        autoKeyOut.store(best, std::memory_order_relaxed);
+        autoConfOut.store((float) (juce::jlimit(0.0, 1.0, gap * 5.0 + 0.3) * (0.3 + 0.7 * evidence)), std::memory_order_relaxed);
+        autoAltOut.store(gap < 0.06 ? second : -1, std::memory_order_relaxed);   // a close runner-up is worth showing
     }
 
     void updateDeEss(float f, float q)
@@ -852,9 +881,13 @@ private:
     float hPhase[6] = {}, hSemi[6] = {}, hLen = 1440.0f;
     bool hPrev[6] = {};
     PitchTracker trkH;
+    static constexpr int kKeyN = 4096;
     double chroma[12] = {}, keySeconds = 0.0;
-    int keyFrameCount = 0, keyFramesSeen = 0;
-    std::atomic<int> autoKeyOut { -1 };
+    int keyFrameCount = 0, kHave = 0, kHop = 0, kPosW = 0;
+    std::vector<float> kRing, kWin, kFftData;
+    std::vector<int> kBinPc;
+    juce::dsp::FFT kFft { 12 };
+    std::atomic<int> autoKeyOut { -1 }, autoAltOut { -1 };
     std::atomic<float> autoConfOut { 0.0f }, autoSecOut { 0.0f };
     std::atomic<bool> autoResetReq { false };
     float leadG = 1.0f;

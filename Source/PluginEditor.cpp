@@ -129,7 +129,9 @@ NFVocalSunshineAudioProcessorEditor::NFVocalSunshineAudioProcessorEditor(NFVocal
     setup(lowKnob, smallLook, 200);
     setup(highKnob, smallLook, 200);
     setup(atkKnob, smallLook, 200); setup(relKnob, smallLook, 200); setup(ratKnob, smallLook, 200);
-    setup(deFreqKnob, smallLook, 200); setup(deMaxKnob, smallLook, 200); setup(lofiKnob, smallLook, 200);
+    setup(deFreqKnob, smallLook, 200); setup(deMaxKnob, smallLook, 200); setup(lofiKnob, smallLook, 200); setup(fbKnob, smallLook, 200);
+    fbKnob.setDoubleClickReturnValue(true, 38.0);
+    fbAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(proc.apvts, "dfb", fbKnob);
     lofiKnob.setDoubleClickReturnValue(true, 0.0);
     lofiAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(proc.apvts, "dlofi", lofiKnob);
     deFreqKnob.setDoubleClickReturnValue(true, 6500.0); deMaxKnob.setDoubleClickReturnValue(true, 8.0);
@@ -177,7 +179,7 @@ NFVocalSunshineAudioProcessorEditor::NFVocalSunshineAudioProcessorEditor(NFVocal
 
 NFVocalSunshineAudioProcessorEditor::~NFVocalSunshineAudioProcessorEditor()
 {
-    for (auto* s : { &knob, &outKnob, &mixKnob, &lowKnob, &highKnob, &atkKnob, &relKnob, &ratKnob, &deFreqKnob, &deMaxKnob, &lofiKnob }) s->setLookAndFeel(nullptr);
+    for (auto* s : { &knob, &outKnob, &mixKnob, &lowKnob, &highKnob, &atkKnob, &relKnob, &ratKnob, &deFreqKnob, &deMaxKnob, &lofiKnob, &fbKnob }) s->setLookAndFeel(nullptr);
 }
 
 // Slider attachments install their own text functions, so ours are set after every attach: real units on every knob.
@@ -196,6 +198,7 @@ void NFVocalSunshineAudioProcessorEditor::setupValueTexts()
     highKnob.textFromValueFunction = [](double v) { return v > 19900.0 ? juce::String("Off") : (v >= 1000.0 ? juce::String(v / 1000.0, 1) + " kHz" : juce::String(juce::roundToInt(v)) + " Hz"); };
     outKnob.textFromValueFunction = [](double v) { return (v > 0.04 ? "+" : "") + juce::String(v, 1) + " dB"; };
     mixKnob.textFromValueFunction = [](double v) { return juce::String(juce::roundToInt(v)) + " %"; };
+    fbKnob.textFromValueFunction = [](double v) { return juce::String(juce::roundToInt(v)) + " %"; };
     lofiKnob.textFromValueFunction = [](double v) { return v < 0.5 ? juce::String("Off") : juce::String(juce::roundToInt(v)) + " %"; };
     deFreqKnob.textFromValueFunction = [](double v) { return juce::String(v / 1000.0, 1) + " kHz"; };
     deMaxKnob.textFromValueFunction = [](double v) { return juce::String(v, 1) + " dB"; };
@@ -227,7 +230,7 @@ void NFVocalSunshineAudioProcessorEditor::selectStage(int s)
     look.accent = stageColour(s);
     for (auto* k : { &atkKnob, &relKnob, &ratKnob }) k->setVisible(s == nfvs::Control);
     for (auto* k : { &deFreqKnob, &deMaxKnob }) k->setVisible(s == nfvs::DeEss);
-    lofiKnob.setVisible(s == nfvs::Delay);
+    lofiKnob.setVisible(s == nfvs::Delay); fbKnob.setVisible(s == nfvs::Delay);
     repaint();
 }
 
@@ -241,7 +244,8 @@ void NFVocalSunshineAudioProcessorEditor::resized()
     place(atkKnob, 586.0f, 312.0f, 42.0f);
     place(relKnob, 666.0f, 312.0f, 42.0f);
     place(ratKnob, 746.0f, 312.0f, 42.0f);
-    place(lofiKnob, 666.0f, 312.0f, 42.0f);
+    place(fbKnob, 626.0f, 312.0f, 42.0f);
+    place(lofiKnob, 706.0f, 312.0f, 42.0f);
     place(deFreqKnob, 626.0f, 312.0f, 42.0f);
     place(deMaxKnob, 706.0f, 312.0f, 42.0f);
     place(lowKnob, 574.0f, 414.0f, 38.0f);
@@ -813,12 +817,15 @@ void NFVocalSunshineAudioProcessorEditor::paint(juce::Graphics& g)
     }
     else if (stage == nfvs::Delay)
     {
-        const float cx = (float) lofiKnob.getBounds().getCentreX() / scale();
-        g.setColour(kText); g.setFont(font(10.0f, true));
-        g.drawText(lofiKnob.getTextFromValue(lofiKnob.getValue()), juce::Rectangle<float>(cx - 36.0f, 282.0f, 72.0f, 14.0f), juce::Justification::centred);
-        g.setColour(kMuted); g.setFont(font(8.5f, true));
-        g.drawText("LO-FI", juce::Rectangle<float>(cx - 34.0f, 338.0f, 68.0f, 12.0f), juce::Justification::centred);
-        g.setFont(font(9.0f)); g.drawText("darker, crunchier, wobbly repeats", juce::Rectangle<float>(cx - 120.0f, 354.0f, 240.0f, 12.0f), juce::Justification::centred);
+        const std::pair<juce::Slider*, const char*> kn[] = { { &fbKnob, "FEEDBACK" }, { &lofiKnob, "LO-FI" } };
+        for (const auto& k : kn)
+        {
+            const float cx = (float) k.first->getBounds().getCentreX() / scale();
+            g.setColour(kText); g.setFont(font(10.0f, true));
+            g.drawText(k.first->getTextFromValue(k.first->getValue()), juce::Rectangle<float>(cx - 36.0f, 282.0f, 72.0f, 14.0f), juce::Justification::centred);
+            g.setColour(kMuted); g.setFont(font(8.5f, true));
+            g.drawText(k.second, juce::Rectangle<float>(cx - 34.0f, 338.0f, 68.0f, 12.0f), juce::Justification::centred);
+        }
     }
     else if (stage == nfvs::DeEss)
     {
@@ -870,10 +877,16 @@ void NFVocalSunshineAudioProcessorEditor::paint(juce::Graphics& g)
             g.setFont(font(10.0f, true));
             juce::String txt;
             if (!autoOn) txt = "Key chosen by hand";
-            else if (!known) txt = "LISTENING...  " + juce::String(juce::jmin(chain.autoSecondsNow(), 3.0f), 1) + " / 3 s of singing";
+            else if (!known) txt = "LISTENING...  " + juce::String(juce::jmin(chain.autoSecondsNow(), 6.0f), 1) + " / 6 s of singing";
             else txt = juce::String(kKeys[ak % 12]) + (ak >= 12 ? " MINOR" : " MAJOR") + "   -   " + juce::String(juce::roundToInt(chain.autoConfidenceNow() * 100.0f)) + " % sure";
             g.setColour(known ? accent : kMuted);
-            g.drawText(txt, statusRect(), juce::Justification::centred);
+            g.drawText(txt, statusRect().withHeight(16.0f), juce::Justification::centred);
+            const int alt = known ? chain.autoAlternativeNow() : -1;
+            if (alt >= 0)   // two keys are almost tied: say so
+            {
+                g.setFont(font(8.5f)); g.setColour(kMuted);
+                g.drawText(juce::String("also close: ") + kKeys[alt % 12] + (alt >= 12 ? " MINOR" : " MAJOR"), statusRect().withTrimmedTop(15.0f), juce::Justification::centred);
+            }
         }
     }
     else

@@ -44,7 +44,7 @@ target_link_libraries(NFVocalSunshine PRIVATE NFVocalSunshineAssets juce::juce_a
  PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
 
 if(NFVocalSunshine_BUILD_TOOLS)
- foreach(tool Snapshot SmokeTest)
+ foreach(tool Snapshot SmokeTest KeyTool)
   juce_add_console_app(NFVocalSunshine${tool} PRODUCT_NAME "NFVocalSunshine${tool}")
   juce_generate_juce_header(NFVocalSunshine${tool})
   target_sources(NFVocalSunshine${tool} PRIVATE Tests/${tool}.cpp ${VS_SOURCES})
