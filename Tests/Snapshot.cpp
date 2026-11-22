@@ -1,6 +1,7 @@
 // Developer tool: renders NF Vocal Sunshine's editor to a PNG. Usage: NFVocalSunshineSnapshot out.png [stage 0..6] [scale] [preset]
 #include <JuceHeader.h>
 #include "../Source/PluginProcessor.h"
+#include "../Source/PluginEditor.h"
 
 int main(int argc, char** argv)
 {
@@ -32,6 +33,7 @@ int main(int argc, char** argv)
     }
     std::unique_ptr<juce::AudioProcessorEditor> ed(proc.createEditor());
     ed->setSize(810, 500);
+    if (argc > 8 && std::atoi(argv[8]) != 0) static_cast<NFVocalSunshineAudioProcessorEditor*>(ed.get())->showLicencePreview();
     const bool live = argc > 7 && std::atoi(argv[7]) != 0;   // keep feeding audio while the editor runs: the meters should move; without it they must fall to zero
     double phase2 = 0.0;
     for (int i = 0; i < 80; ++i)

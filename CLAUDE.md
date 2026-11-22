@@ -2,7 +2,7 @@
 Guided eleven-stage vocal processor (own design; the idea came from a "vocal chain in minutes" wizard seen in a video — never copy another product's name, art or presets).
 Signal chain, zero latency: LOW/HIGH CUT (global knobs) -> CLEAN -> FIX -> EQ (4 draggable points) -> TONE -> CONTROL -> DE-ESSER -> COLOR -> DOUBLE (double/stack/wide; shown as DOUBLE in the UI, `Voices` in code) -> HARMONY (pitch-shifted interval voices) -> REVERB -> DELAY -> FINISH, then Output + Mix (12 stages; CONTROL stage is shown as COMPRESSOR). One stage is shown at a time:
 big amount knob, 3 styles, module on/off, 2 option switches, before/after waveform (input vs the signal after the selected stage), activity meter, stage rail at the bottom.
-- Repo `~/NF-Vocal-Sunshine` (local git, not pushed). Version: `CMakeLists.txt` line 2 only (no installer yet). Licence OFF while developing (Neno adds it at the end with Paulo).
+- Repo `~/NF-Vocal-Sunshine` (local git, not pushed). Version: `CMakeLists.txt` line 2 only (no installer yet). Licence ON by default since 2026-11-22 (owner: 'tem que ter chave de acesso, chave curta'); see the Licence section.
 - Ids: bundle `com.nfaudiotools.nfvocalsunshine`, manufacturer `Nfat`, code `Nfsu`, licence code would be `NF_VOCAL_SUNSHINE`.
 - Look (v0.1, redesigned 2026-11-21 to differ from the reference video): brushed-graphite faceplate with rack screws, module list on the left (LED = module on/off, click = select), segmented STYLE selector, A/B push buttons, silver hardware knobs (printed scale, no ring texture), LCD value window, vertical LED meter, master strip (low cut / high cut / output / mix) with live values. Value texts are set in `setupValueTexts()` after every attach because SliderAttachment overrides them.
 - Window 810 x 500 (exception to 810 x 270), size stored in state (`uiWidth`), selected stage in state (`stage`); logo double-click resets. Official logo image only (`Assets/NF_Audio_Tools_Logo_MAIN_800.png` = the 800 px version of the official MAIN logo, rescaled to the exact pixel size when painting).
@@ -29,3 +29,14 @@ big amount knob, 3 styles, module on/off, 2 option switches, before/after wavefo
 - Waveform lanes (before / after the selected stage): one smooth mirrored envelope filled with a horizontal fade, lighter core, glow and a crisp outline on the two long edges (no separate bars).
 - Waveform colours: both lanes are neon (ORIGINAL = ice-blue 0x7df3ff, AFTER = the stage's neon colour), saturated fill, double neon glow on the edges, light tint core, labels on a dark backing so they stay readable.
 - Left vertical meter: reduction / activity for CLEAN, FIX, COMPRESSOR, DE-ESSER and FINISH; for every other stage it shows the stage's real output level (peak of the last 80 ms, -48..0 dB) and falls to zero when the host stops calling the plug-in (it used to show the knob position, which looked stuck).
+
+## Licence (access key) and installers
+- Same design as NF Brutal: short key `NFVS-XXXX-XXXX-XXXX-XXXX` (product `nfvs`) traded at POST /activate on the licence worker `https://mixa-licence.nenovoice.workers.dev`
+  for the signed long key `NFVS2|name|expires|id` (RSA-2048, checked offline), 2 computers per key, weekly online check, 30 days offline grace. Plug-in is muted until activated; the editor shows
+  `Source/License/VocalSunshineLicenseOverlay.h`. Key file: `~/Library/NF Audio Tools/NF Vocal Sunshine/licence.key` (Windows `%APPDATA%`).
+- Private key `~/.nfvs_license/private.pem` (+ `pkcs8.b64` = worker secret `NFVS_KEY`): NEVER commit, the owner must back it up. Public half in `Source/License/NFVSLicensePublicKey.h`.
+- CMake option `-DNFVocalSunshine_LICENSE=OFF` = development build without the lock (the test tools never enforce it). Default ON, so a build cannot ship unlocked by accident.
+- The worker code with the product `nfvs` is committed locally in `~/Documents/mixa-worker-wt` (branch license-worker-short-keys, commit 9eecaec) but NOT DEPLOYED and the secret NOT uploaded: both need the owner's OK (production). Until then keys cannot be created and the plug-in cannot be activated online.
+- Mac: `bash Installer/macos/build_dmg.sh` -> `~/Desktop/NF Vocal Sunshine <version>.dmg` (universal, VST3 + AU, key ON, ad-hoc signed, .pkg unsigned; refuses a build without the key code or not universal).
+- Windows: `bash Installer/Windows/build_windows_on_mac.sh` -> `~/Desktop/NF Vocal Sunshine <version> Setup.exe` (VST3 x64 cross-compiled with clang-cl + xwin; stub in `Installer/Windows/stub`). Never run on a real Windows machine from here.
+- `LicenseCheck` tool (Tests): `NFVocalSunshineLicenseCheck "<long key>"` verifies a key with the plug-in's own code. DMG / EXE are never committed.

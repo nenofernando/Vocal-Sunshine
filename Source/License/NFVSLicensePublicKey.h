@@ -1,0 +1,7 @@
+#pragma once
+// Public half of the NF Vocal Sunshine licence key (private half: ~/.nfvs_license/private.pem, never committed). Safe to commit.
+namespace NFVSLicenseKey
+{
+    static constexpr const char* exponentHex = "10001";
+    static constexpr const char* modulusHex = "ae6e2e8fb9b14f2b45097e1e45ce8bbc00b51903eef41c389f692ae27ef72a02400006896d385c262a65e615ef8c023d70a177fca96526237b2be0a5b7e1d9a328f2d5ebc1bcaecd280dd9b282c41f239cd96707c12312f3d42978eb6071a37578502379647b3652098639a278e3f4e04bcd907ef7c88120dbb1669a7ca56364bfb9bf65d90ebda06c7550a1eb956949e6e8fa7e9f8531522190eec3e60b8a85e07ec3f997f43cfcfd41758250eaa536780b18b7c85dc1cdd5472aab6c6299c56a5b5aeb0d719f18113b732bf00e4666fcb6023a66d45f0de92b20dacf4b11596f3a4889e73c8a9d1ccb824fc6a89f192afe0c8915bd956e8b88fecd5ae0ec01";
+}

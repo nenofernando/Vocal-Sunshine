@@ -3,6 +3,8 @@ project(NFVocalSunshine VERSION 0.1.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum macOS version")
+# Licence lock: ON by default (an access key is required); -DNFVocalSunshine_LICENSE=OFF builds a development version without it.
+option(NFVocalSunshine_LICENSE "Require an access key" ON)
 option(NFVocalSunshine_BUILD_TOOLS "Build the UI snapshot and smoke-test tools" OFF)
 
 find_package(JUCE CONFIG QUIET)
@@ -21,7 +23,7 @@ juce_add_binary_data(NFVocalSunshineAssets HEADER_NAME NFVocalSunshineBinaryData
  SOURCES Assets/NF_Audio_Tools_Logo_MAIN_800.png)
 
 set(VS_SOURCES Source/PluginProcessor.cpp Source/PluginEditor.cpp)
-set(VS_DEFS JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0 JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_REPORT_APP_USAGE=0)
+set(VS_DEFS JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0 JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_REPORT_APP_USAGE=0 VS_LICENSE_ENFORCE=$<BOOL:${NFVocalSunshine_LICENSE}>)
 
 juce_add_plugin(NFVocalSunshine
  COMPANY_NAME "NF Audio Tools"
@@ -40,16 +42,16 @@ juce_add_plugin(NFVocalSunshine
 juce_generate_juce_header(NFVocalSunshine)
 target_sources(NFVocalSunshine PRIVATE ${VS_SOURCES})
 target_compile_definitions(NFVocalSunshine PUBLIC ${VS_DEFS})
-target_link_libraries(NFVocalSunshine PRIVATE NFVocalSunshineAssets juce::juce_audio_utils juce::juce_dsp
+target_link_libraries(NFVocalSunshine PRIVATE NFVocalSunshineAssets juce::juce_audio_utils juce::juce_dsp juce::juce_cryptography
  PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
 
 if(NFVocalSunshine_BUILD_TOOLS)
- foreach(tool Snapshot SmokeTest KeyTool)
+ foreach(tool Snapshot SmokeTest KeyTool LicenseCheck)
   juce_add_console_app(NFVocalSunshine${tool} PRODUCT_NAME "NFVocalSunshine${tool}")
   juce_generate_juce_header(NFVocalSunshine${tool})
   target_sources(NFVocalSunshine${tool} PRIVATE Tests/${tool}.cpp ${VS_SOURCES})
   target_compile_definitions(NFVocalSunshine${tool} PRIVATE JucePlugin_Name="NF Vocal Sunshine" JucePlugin_VersionString="0.1.0"
-   JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1 JucePlugin_Build_Standalone=0 JUCE_MODAL_LOOPS_PERMITTED=1)
-  target_link_libraries(NFVocalSunshine${tool} PRIVATE NFVocalSunshineAssets juce::juce_audio_utils juce::juce_dsp juce::juce_gui_extra juce::juce_recommended_config_flags)
+   JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 VS_LICENSE_ENFORCE=0 JUCE_STANDALONE_APPLICATION=1 JucePlugin_Build_Standalone=0 JUCE_MODAL_LOOPS_PERMITTED=1)
+  target_link_libraries(NFVocalSunshine${tool} PRIVATE NFVocalSunshineAssets juce::juce_audio_utils juce::juce_dsp juce::juce_cryptography juce::juce_gui_extra juce::juce_recommended_config_flags)
  endforeach()
 endif()

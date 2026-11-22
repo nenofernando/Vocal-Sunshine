@@ -7,6 +7,10 @@ NFVocalSunshineAudioProcessor::NFVocalSunshineAudioProcessor()
                                       .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       apvts(*this, nullptr, "NF_VOCAL_SUNSHINE_STATE", createParameters())
 {
+   #if VS_LICENSE_ENFORCE
+    licensed.store(NFVSLicense::isLicensed());
+    licenceWatch.startThread();
+   #endif
     for (int s = 0; s < nfvs::kStages; ++s)
     {
         amtP[s] = apvts.getRawParameterValue(stageId(s, "amt")); modeP[s] = apvts.getRawParameterValue(stageId(s, "mode"));
@@ -24,6 +28,13 @@ NFVocalSunshineAudioProcessor::NFVocalSunshineAudioProcessor()
         for (int k = 0; k < 3; ++k) eqP[b][k] = apvts.getRawParameterValue("eq" + juce::String(b + 1) + "fgq"[k]);
     ctlP[0] = apvts.getRawParameterValue("ctlatk"); ctlP[1] = apvts.getRawParameterValue("ctlrel"); ctlP[2] = apvts.getRawParameterValue("ctlratio");
     lowP = apvts.getRawParameterValue("lowcut"); highP = apvts.getRawParameterValue("highcut"); bypassP = apvts.getRawParameterValue("bypass");
+}
+
+NFVocalSunshineAudioProcessor::~NFVocalSunshineAudioProcessor()
+{
+   #if VS_LICENSE_ENFORCE
+    licenceWatch.stopThread(10000);
+   #endif
 }
 
 void NFVocalSunshineAudioProcessor::prepareToPlay(double sr, int maxBlock)
@@ -44,6 +55,9 @@ void NFVocalSunshineAudioProcessor::processBlock(juce::AudioBuffer<float>& buffe
 {
     juce::ScopedNoDenormals guard;
     blockCount.fetch_add(1, std::memory_order_relaxed);
+   #if VS_LICENSE_ENFORCE
+    if (!licensed.load()) { buffer.clear(); return; }   // unlicensed: silence (the host's own bypass never reaches here, so it still passes audio through)
+   #endif
     const int numCh = std::min(2, buffer.getNumChannels()), n = buffer.getNumSamples();
     if (numCh <= 0 || n <= 0) return;
 

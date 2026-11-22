@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
+#include "License/VocalSunshineLicenseOverlay.h"
 
 class NFVocalSunshineAudioProcessorEditor final : public juce::AudioProcessorEditor, private juce::Timer
 {
@@ -17,6 +18,7 @@ public:
     void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
     static constexpr int kBaseW = 810, kBaseH = 500;
+    void showLicencePreview();   // developer tool: shows the activation window without enforcing the licence
 
 private:
     struct KnobLook final : juce::LookAndFeel_V4
@@ -74,6 +76,8 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> knobAtt, outAtt, mixAtt, lowAtt, highAtt, atkAtt, relAtt, ratAtt, deFreqAtt, deMaxAtt, lofiAtt, fbAtt, formantAtt;
     juce::ComponentBoundsConstrainer constrainer;
     juce::Image logo, logoScaled, brushed;
+    std::unique_ptr<VocalSunshineLicenseOverlay> licenceOverlay;
+    void makeLicenceOverlay(bool visible);
     int stage = 0;
     bool bypassed = false;
     bool draggingSpread = false, draggingDeFreq = false;

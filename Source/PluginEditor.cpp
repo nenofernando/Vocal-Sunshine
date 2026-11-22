@@ -170,6 +170,10 @@ NFVocalSunshineAudioProcessorEditor::NFVocalSunshineAudioProcessorEditor(NFVocal
     look.style = juce::jlimit(0, 2, (int) p.apvts.state.getProperty("knobStyle", 1));
     setupValueTexts();
 
+   #if VS_LICENSE_ENFORCE
+    makeLicenceOverlay(!p.isLicensed());
+   #endif
+
     constrainer.setFixedAspectRatio((double) kBaseW / (double) kBaseH);
     constrainer.setSizeLimits(kBaseW * 3 / 4, kBaseH * 3 / 4, kBaseW * 2, kBaseH * 2);
     setConstrainer(&constrainer);
@@ -211,6 +215,19 @@ void NFVocalSunshineAudioProcessorEditor::setupValueTexts()
         return s;
     };
 }
+
+void NFVocalSunshineAudioProcessorEditor::makeLicenceOverlay(bool visible)
+{
+    licenceOverlay = std::make_unique<VocalSunshineLicenseOverlay>();
+    licenceOverlay->isLicensed = [this] { return proc.isLicensed(); };
+    licenceOverlay->onActivated = [this] { proc.setLicensed(true); };
+    addChildComponent(*licenceOverlay);          // added last, so it covers every knob and display
+    licenceOverlay->setVisible(visible);
+    licenceOverlay->setBounds(getLocalBounds());
+    if (visible) licenceOverlay->toFront(false);
+}
+
+void NFVocalSunshineAudioProcessorEditor::showLicencePreview() { makeLicenceOverlay(true); licenceOverlay->isLicensed = [] { return false; }; }
 
 void NFVocalSunshineAudioProcessorEditor::selectStage(int s)
 {
@@ -258,6 +275,7 @@ void NFVocalSunshineAudioProcessorEditor::resized()
     place(outKnob, 698.0f, 414.0f, 38.0f);
     place(mixKnob, 760.0f, 414.0f, 38.0f);
     proc.apvts.state.setProperty("uiWidth", getWidth(), nullptr);
+    if (licenceOverlay != nullptr) licenceOverlay->setBounds(getLocalBounds());
 }
 
 int NFVocalSunshineAudioProcessorEditor::presetIndex() const
