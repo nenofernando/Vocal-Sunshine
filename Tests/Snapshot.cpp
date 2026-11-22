@@ -9,6 +9,7 @@ int main(int argc, char** argv)
     proc.applyPreset(argc > 4 ? std::atoi(argv[4]) : 1);
     proc.apvts.state.setProperty("stage", argc > 2 ? std::atoi(argv[2]) : 0, nullptr);
     proc.apvts.state.setProperty("knobStyle", argc > 5 ? std::atoi(argv[5]) : 0, nullptr);
+    if (argc > 6) { auto* q = proc.apvts.getParameter("dlofi"); q->setValueNotifyingHost(q->convertTo0to1((float) std::atof(argv[6]))); }
     proc.setPlayConfigDetails(2, 2, 48000.0, 480);
     proc.prepareToPlay(48000.0, 480);
 

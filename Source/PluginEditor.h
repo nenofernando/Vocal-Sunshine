@@ -63,8 +63,8 @@ private:
 
     NFVocalSunshineAudioProcessor& proc;
     KnobLook look, smallLook;
-    juce::Slider knob, outKnob, mixKnob, lowKnob, highKnob, atkKnob, relKnob, ratKnob, deFreqKnob, deMaxKnob;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> knobAtt, outAtt, mixAtt, lowAtt, highAtt, atkAtt, relAtt, ratAtt, deFreqAtt, deMaxAtt;
+    juce::Slider knob, outKnob, mixKnob, lowKnob, highKnob, atkKnob, relKnob, ratKnob, deFreqKnob, deMaxKnob, lofiKnob;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> knobAtt, outAtt, mixAtt, lowAtt, highAtt, atkAtt, relAtt, ratAtt, deFreqAtt, deMaxAtt, lofiAtt;
     juce::ComponentBoundsConstrainer constrainer;
     juce::Image logo, brushed;
     int stage = 0;

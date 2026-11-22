@@ -129,7 +129,9 @@ NFVocalSunshineAudioProcessorEditor::NFVocalSunshineAudioProcessorEditor(NFVocal
     setup(lowKnob, smallLook, 200);
     setup(highKnob, smallLook, 200);
     setup(atkKnob, smallLook, 200); setup(relKnob, smallLook, 200); setup(ratKnob, smallLook, 200);
-    setup(deFreqKnob, smallLook, 200); setup(deMaxKnob, smallLook, 200);
+    setup(deFreqKnob, smallLook, 200); setup(deMaxKnob, smallLook, 200); setup(lofiKnob, smallLook, 200);
+    lofiKnob.setDoubleClickReturnValue(true, 0.0);
+    lofiAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(proc.apvts, "dlofi", lofiKnob);
     deFreqKnob.setDoubleClickReturnValue(true, 6500.0); deMaxKnob.setDoubleClickReturnValue(true, 8.0);
     deFreqAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(proc.apvts, "desfreq", deFreqKnob);
     deMaxAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(proc.apvts, "desmax", deMaxKnob);
@@ -175,7 +177,7 @@ NFVocalSunshineAudioProcessorEditor::NFVocalSunshineAudioProcessorEditor(NFVocal
 
 NFVocalSunshineAudioProcessorEditor::~NFVocalSunshineAudioProcessorEditor()
 {
-    for (auto* s : { &knob, &outKnob, &mixKnob, &lowKnob, &highKnob, &atkKnob, &relKnob, &ratKnob, &deFreqKnob, &deMaxKnob }) s->setLookAndFeel(nullptr);
+    for (auto* s : { &knob, &outKnob, &mixKnob, &lowKnob, &highKnob, &atkKnob, &relKnob, &ratKnob, &deFreqKnob, &deMaxKnob, &lofiKnob }) s->setLookAndFeel(nullptr);
 }
 
 // Slider attachments install their own text functions, so ours are set after every attach: real units on every knob.
@@ -194,6 +196,7 @@ void NFVocalSunshineAudioProcessorEditor::setupValueTexts()
     highKnob.textFromValueFunction = [](double v) { return v > 19900.0 ? juce::String("Off") : (v >= 1000.0 ? juce::String(v / 1000.0, 1) + " kHz" : juce::String(juce::roundToInt(v)) + " Hz"); };
     outKnob.textFromValueFunction = [](double v) { return (v > 0.04 ? "+" : "") + juce::String(v, 1) + " dB"; };
     mixKnob.textFromValueFunction = [](double v) { return juce::String(juce::roundToInt(v)) + " %"; };
+    lofiKnob.textFromValueFunction = [](double v) { return v < 0.5 ? juce::String("Off") : juce::String(juce::roundToInt(v)) + " %"; };
     deFreqKnob.textFromValueFunction = [](double v) { return juce::String(v / 1000.0, 1) + " kHz"; };
     deMaxKnob.textFromValueFunction = [](double v) { return juce::String(v, 1) + " dB"; };
     knob.textFromValueFunction = [this](double v) {
@@ -214,6 +217,7 @@ void NFVocalSunshineAudioProcessorEditor::selectStage(int s)
     look.accent = stageColour(s);
     for (auto* k : { &atkKnob, &relKnob, &ratKnob }) k->setVisible(s == nfvs::Control);
     for (auto* k : { &deFreqKnob, &deMaxKnob }) k->setVisible(s == nfvs::DeEss);
+    lofiKnob.setVisible(s == nfvs::Delay);
     repaint();
 }
 
@@ -227,6 +231,7 @@ void NFVocalSunshineAudioProcessorEditor::resized()
     place(atkKnob, 586.0f, 312.0f, 42.0f);
     place(relKnob, 666.0f, 312.0f, 42.0f);
     place(ratKnob, 746.0f, 312.0f, 42.0f);
+    place(lofiKnob, 666.0f, 312.0f, 42.0f);
     place(deFreqKnob, 626.0f, 312.0f, 42.0f);
     place(deMaxKnob, 706.0f, 312.0f, 42.0f);
     place(lowKnob, 574.0f, 414.0f, 38.0f);
@@ -625,15 +630,17 @@ void NFVocalSunshineAudioProcessorEditor::paint(juce::Graphics& g)
             for (int i = 0; i < cols; ++i)
             {
                 const float v = chain.histAt(tap, (pos + i) % cols);
-                const float n = juce::jlimit(0.0f, 1.0f, (nfvs::toDb(v) + 54.0f) / 54.0f);
-                const float hh = std::max(0.8f, n * lr.getHeight() * 0.5f);
-                const float age = 0.30f + 0.70f * (float) i / (float) cols;
-                g.setColour((lane == 0 ? juce::Colour(0xffc9ccd2) : (modOn ? accent : juce::Colour(0xff6b6f77))).withAlpha(age));
-                g.fillRoundedRectangle(lr.getX() + (float) i * cw, cy - hh, std::max(1.0f, cw * 0.68f), hh * 2.0f, 0.8f);
+                const float n = std::pow(juce::jlimit(0.0f, 1.0f, (nfvs::toDb(v) + 46.0f) / 46.0f), 0.8f);   // more of the level range fills the lane
+                const float hh = std::max(1.2f, n * lr.getHeight() * 0.5f);
+                const float age = 0.62f + 0.38f * (float) i / (float) cols;
+                const auto wc = lane == 0 ? juce::Colour(0xfff1f3f8) : (modOn ? accent : juce::Colour(0xff7a7e86));
+                if (lane == 1 && modOn && n > 0.08f) { g.setColour(wc.withAlpha(0.14f * age)); g.fillRoundedRectangle(lr.getX() + (float) i * cw - cw * 0.4f, cy - hh - 2.0f, cw * 1.8f, hh * 2.0f + 4.0f, 2.0f); }   // neon glow
+                g.setColour(wc.withAlpha(age));
+                g.fillRoundedRectangle(lr.getX() + (float) i * cw, cy - hh, std::max(1.2f, cw * 0.78f), hh * 2.0f, 0.8f);
             }
         }
         g.setFont(font(9.0f, true));
-        g.setColour(kMuted); g.drawText("ORIGINAL", juce::Rectangle<float>(wp.getX() + 14.0f, wp.getY() + 8.0f, 120.0f, 12.0f), juce::Justification::centredLeft);
+        g.setColour(juce::Colour(0xffc6cad2)); g.drawText("ORIGINAL", juce::Rectangle<float>(wp.getX() + 14.0f, wp.getY() + 8.0f, 120.0f, 12.0f), juce::Justification::centredLeft);
         g.setColour(accent); g.drawText(juce::String("AFTER ") + si.name, juce::Rectangle<float>(wp.getX() + 14.0f, wp.getY() + 16.0f + laneH, 200.0f, 12.0f), juce::Justification::centredLeft);
     }
     if (stage == nfvs::Control)
@@ -737,6 +744,15 @@ void NFVocalSunshineAudioProcessorEditor::paint(juce::Graphics& g)
             g.setColour(kMuted); g.setFont(font(8.5f, true));
             g.drawText(k.second, juce::Rectangle<float>(cx - 30.0f, 338.0f, 60.0f, 12.0f), juce::Justification::centred);
         }
+    }
+    else if (stage == nfvs::Delay)
+    {
+        const float cx = (float) lofiKnob.getBounds().getCentreX() / scale();
+        g.setColour(kText); g.setFont(font(10.0f, true));
+        g.drawText(lofiKnob.getTextFromValue(lofiKnob.getValue()), juce::Rectangle<float>(cx - 36.0f, 282.0f, 72.0f, 14.0f), juce::Justification::centred);
+        g.setColour(kMuted); g.setFont(font(8.5f, true));
+        g.drawText("LO-FI", juce::Rectangle<float>(cx - 34.0f, 338.0f, 68.0f, 12.0f), juce::Justification::centred);
+        g.setFont(font(9.0f)); g.drawText("darker, crunchier, wobbly repeats", juce::Rectangle<float>(cx - 120.0f, 354.0f, 240.0f, 12.0f), juce::Justification::centred);
     }
     else if (stage == nfvs::DeEss)
     {

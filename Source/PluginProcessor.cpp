@@ -16,7 +16,7 @@ NFVocalSunshineAudioProcessor::NFVocalSunshineAudioProcessor()
     outP = apvts.getRawParameterValue("output"); mixP = apvts.getRawParameterValue("mix");
     for (int v = 0; v < 6; ++v) hvP[v] = apvts.getRawParameterValue("hv" + juce::String(v + 1));
     hkeyP = apvts.getRawParameterValue("hkey"); hleadP = apvts.getRawParameterValue("hlead");
-    deP[0] = apvts.getRawParameterValue("desfreq"); deP[1] = apvts.getRawParameterValue("desmax");
+    lofiP = apvts.getRawParameterValue("dlofi"); deP[0] = apvts.getRawParameterValue("desfreq"); deP[1] = apvts.getRawParameterValue("desmax");
     vspreadP = apvts.getRawParameterValue("vspread");
     for (int b = 0; b < 4; ++b)
         for (int k = 0; k < 3; ++k) eqP[b][k] = apvts.getRawParameterValue("eq" + juce::String(b + 1) + "fgq"[k]);
@@ -52,7 +52,7 @@ void NFVocalSunshineAudioProcessor::processBlock(juce::AudioBuffer<float>& buffe
     }
     prm.outputDb = outP->load(); prm.mix = mixP->load(); for (int v = 0; v < 6; ++v) prm.hv[v] = hvP[v]->load() > 0.5f;
     prm.hkey = juce::roundToInt(hkeyP->load()); prm.hLead = hleadP->load() > 0.5f;
-    prm.deFreq = deP[0]->load(); prm.deMax = deP[1]->load();
+    prm.dLofi = lofiP->load(); prm.deFreq = deP[0]->load(); prm.deMax = deP[1]->load();
     prm.vSpread = vspreadP->load();
     for (int b = 0; b < 4; ++b) { prm.eqF[b] = eqP[b][0]->load(); prm.eqG[b] = eqP[b][1]->load(); prm.eqQ[b] = eqP[b][2]->load(); }
     prm.ctlAtk = ctlP[0]->load(); prm.ctlRel = ctlP[1]->load(); prm.ctlRatio = ctlP[2]->load();
@@ -132,6 +132,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout NFVocalSunshineAudioProcesso
         v.push_back(std::make_unique<juce::AudioParameterFloat>(ID{ "desfreq", 1 }, "De-Esser Frequency", fr, 6500.0f, juce::AudioParameterFloatAttributes().withLabel("Hz")));
         v.push_back(std::make_unique<juce::AudioParameterFloat>(ID{ "desmax", 1 }, "De-Esser Max Cut", juce::NormalisableRange<float>(1.0f, 15.0f, 0.1f), 8.0f, juce::AudioParameterFloatAttributes().withLabel("dB")));
     }
+    v.push_back(std::make_unique<juce::AudioParameterFloat>(ID{ "dlofi", 1 }, "Delay Lo-Fi", juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 0.0f, juce::AudioParameterFloatAttributes().withLabel("%")));
     v.push_back(std::make_unique<juce::AudioParameterBool>(ID{ "hlead", 1 }, "Harmony Lead", true));
     v.push_back(std::make_unique<juce::AudioParameterChoice>(ID{ "hkey", 1 }, "Harmony Key",
         juce::StringArray { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }, 0));

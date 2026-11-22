@@ -22,6 +22,7 @@ struct Params
     bool hv[6] = {};                  // harmony intervals: -8ve, -3rd, +3rd, +5th, +6th, +8ve
     int hkey = 0;                     // harmony key, 0 = C
     float vSpread = 100.0f;           // VOICES: how far the left / right copies open, 0..100 %
+    float dLofi = 0.0f;               // DELAY: lo-fi amount 0..100 (dirtier and darker repeats)
     float deFreq = 6500.0f, deMax = 8.0f;   // DE-ESSER: centre frequency (Hz) and maximum cut (dB)
     float ctlAtk = 50.0f, ctlRel = 50.0f, ctlRatio = 50.0f;   // compressor trims, 0..100 (50 = the style's own value)
     float lowcutHz = 20.0f, highcutHz = 20000.0f;   // 20 Hz / 20 kHz = off
@@ -186,6 +187,7 @@ public:
         std::fill(preBuf.begin(), preBuf.end(), 0.0f);
         envFullD = envDe = 0; gDe = 1.0f; deKey = { -1.0f, -1.0f };
         dw = 0; pw = 0; envFull = envSib = 0; gNoise = gSib = 1.0f; grDb = 0; duck = 0; dlyLp[0] = dlyLp[1] = 0;
+        lofiHold[0] = lofiHold[1] = lofiHp[0] = lofiHp[1] = 0.0f; lofiCount = 0; dWob = 0.0f;
         delaySmoothed = -1.0f; riderDb = 0; riderLin = 1.0f; rmsEnv = 0; gLim = 1.0f;
         for (int b = 0; b < 3; ++b) { envB[b] = 0; avgRel[b] = -18.0f; gBand[b] = 1.0f; }
         dcX[0] = dcX[1] = dcY[0] = dcY[1] = 0;
@@ -263,6 +265,12 @@ public:
             const int preSamp = std::min(preLen - 2, (int) (fs * kPre[mSpc]));
             const float rvGain = 0.5f * sp, dlGain = 0.75f * dl, duckR = tb[Reverb], duckD = tb[Delay];
             const bool pingPong = ta[Delay] > 0.5f;
+            const float lofi = juce::jlimit(0.0f, 1.0f, p.dLofi / 100.0f);
+            const int lofiN = 1 + (int) std::lround(lofi * 5.0f);                       // sample-rate reduction: hold each value for N samples
+            const float lofiLevels = std::pow(2.0f, 15.0f - 8.0f * lofi);                // 16 bit -> 8 bit
+            const float srK = 48000.0f / (float) fs;
+            const float hpA = (0.003f + 0.04f * lofi) * srK, lpA = std::max(0.05f, (0.45f - 0.39f * lofi) * srK), satK = 1.0f + 2.5f * lofi;
+            const float wobInc = 2.0f * juce::MathConstants<float>::pi * 0.55f / (float) fs, wobDepth = lofi * 0.0014f * (float) fs;
             const float fb = 0.38f;
             // VOICES
             const bool vLow = ta[Voices] > 0.5f, vSoft = tb[Voices] > 0.5f;
@@ -543,12 +551,25 @@ public:
                 const bool dlOn = dlGain > 0.002f;
                 if (dlOn || std::abs(dlyLp[0]) + std::abs(dlyLp[1]) > 1e-6f)
                 {
-                    float rp = (float) dw - delaySmoothed;
+                    dWob += wobInc; if (dWob > 6.2831853f) dWob -= 6.2831853f;
+                    const float wob = lofi > 0.002f ? wobDepth * (std::sin(dWob) + 0.35f * std::sin(dWob * 3.7f)) : 0.0f;   // tape wow and flutter
+                    float rp = (float) dw - delaySmoothed - wob;
                     while (rp < 0.0f) rp += (float) delayLen;
                     const int i0 = (int) rp; const float fr = rp - (float) i0; const int i1 = (i0 + 1) % delayLen;
                     float rd[2];
                     for (int ch = 0; ch < 2; ++ch) rd[ch] = delayBuf[ch][(size_t) i0] * (1.0f - fr) + delayBuf[ch][(size_t) i1] * fr;
-                    dlyLp[0] += (rd[0] - dlyLp[0]) * 0.45f; dlyLp[1] += (rd[1] - dlyLp[1]) * 0.45f;
+                    if (lofi > 0.002f)
+                    {
+                        if (lofiCount == 0) { lofiHold[0] = rd[0]; lofiHold[1] = rd[1]; }
+                        lofiCount = (lofiCount + 1) % lofiN;
+                        for (int ch = 0; ch < 2; ++ch)
+                        {
+                            float v = std::round(lofiHold[ch] * lofiLevels) / lofiLevels;            // bit and sample-rate crush
+                            lofiHp[ch] += (v - lofiHp[ch]) * hpA; v -= lofiHp[ch];                    // thin low end
+                            rd[ch] = std::tanh(v * satK) / satK;                                       // soft saturation
+                        }
+                    }
+                    dlyLp[0] += (rd[0] - dlyLp[0]) * (lofi > 0.002f ? lpA : 0.45f); dlyLp[1] += (rd[1] - dlyLp[1]) * (lofi > 0.002f ? lpA : 0.45f);
                     const float mono = 0.5f * (send[0][i] + send[1][i]) * (dlOn ? 1.0f : 0.0f);
                     delayBuf[0][(size_t) dw] = mono + fb * (pingPong ? dlyLp[1] : dlyLp[0]);
                     delayBuf[1][(size_t) dw] = (pingPong ? 0.0f : mono) + fb * (pingPong ? dlyLp[0] : dlyLp[1]);
@@ -721,6 +742,8 @@ private:
     std::array<float, 10> eqKey {};
     std::atomic<float> leadOut { -1.0f };
     float dlyLp[2] = { 0, 0 }, delaySmoothed = -1.0f;
+    float lofiHold[2] = {}, lofiHp[2] = {}, dWob = 0.0f;
+    int lofiCount = 0;
     juce::Reverb reverb;
     float dry[2][kChunk], proc[2][kChunk], send[2][kChunk], revIn[kChunk], revOut[2][kChunk], duckBuf[kChunk], tapPk[12][kChunk], finPk[kChunk];
     int colLen = 960, colCount = 0;

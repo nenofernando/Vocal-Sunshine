@@ -155,6 +155,16 @@ int main()
         const auto a = run(flat(), 1.2, burst, 0.45), b = run(p, 1.2, burst, 0.45);
         check(b.rms > a.rms * 3.0 + 1e-6, "echo is audible at 0.5 s");
     }
+    std::printf("DELAY LO-FI: darker, crunchier repeats\n");
+    {
+        auto p = flat(); p.amt[nfvs::Delay] = 100; p.mode[nfvs::Delay] = 1; p.a[nfvs::Delay] = false; p.b[nfvs::Delay] = false;
+        auto burst = [&](double t) { return t < 0.1 ? (float) (0.5 * std::sin(tw * 6000 * t)) : 0.0f; };
+        auto lo = p; lo.dLofi = 100.0f;
+        const auto clean = run(p, 1.2, burst, 0.45), dirty = run(lo, 1.2, burst, 0.45);
+        check(dirty.rms > 1e-5 && dbOf(dirty.rms) < dbOf(clean.rms) - 6.0, "lo-fi repeats of a 6 kHz tone are at least 6 dB darker");
+        const auto zero = run(p, 1.2, burst, 0.45);
+        check(std::abs(dbOf(zero.rms) - dbOf(clean.rms)) < 0.01, "lo-fi at 0 % leaves the delay untouched");
+    }
     std::printf("VOICES: opens a mono voice into stereo\n");
     {
         auto side = [&](const nfvs::Params& p, int mode) {

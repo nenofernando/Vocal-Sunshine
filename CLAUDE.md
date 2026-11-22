@@ -16,3 +16,4 @@ big amount knob, 3 styles, module on/off, 2 option switches, before/after wavefo
 - Big knob style: KNOB button in the header cycles metal / sun / full moon (`knobStyle` in state). Default = SUN (owner's choice 2026-11-21).
 - DE-ESSER is its own stage (after the compressor): band-pass detector + subtractive cut, FREQUENCY (`desfreq`) and MAX CUT (`desmax`) knobs, styles = bandwidth (narrow / medium / wide), LISTEN plays only the band, SMOOTH = slower release. FIX is now only the three resonance cuts (boxy+nasal / harsh).
 - Colours: neon palette (one hue per stage in `Stages.h`, EQ = neon pink); text and LCD digits get a soft neon halo.
+- DELAY has a LO-FI knob (`dlofi`, inside the feedback loop so every repeat gets dirtier): bit + sample-rate crush, darker low-pass, thinner lows, soft saturation, tape wow/flutter on the delay time. Waveform lanes: brighter, taller, neon glow on the processed lane.
