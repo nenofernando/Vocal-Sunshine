@@ -365,8 +365,6 @@ void NFVocalSunshineAudioProcessorEditor::mouseDown(const juce::MouseEvent& e)
         }
         if (autoRect().contains(pos)) { if (pv("hauto") > 0.5f) leaveAutoKey(); else toggleBool("hauto"); return; }
         if (resetRect().contains(pos)) { proc.resetAutoKey(); return; }
-        if (notesRect().contains(pos)) { setBoolParam("hnotes", true); if (pv("hauto") < 0.5f) setBoolParam("hauto", true); return; }
-        if (songRect().contains(pos)) { setBoolParam("hnotes", false); if (pv("hauto") < 0.5f) setBoolParam("hauto", true); return; }
         if (keyRect().contains(pos))
         {
             if (pv("hauto") > 0.5f) leaveAutoKey();   // choosing by hand: start from what AUTO found
@@ -895,20 +893,6 @@ void NFVocalSunshineAudioProcessorEditor::paint(juce::Graphics& g)
             g.setColour(autoOn ? kText : juce::Colour(0xff55575e)); g.setFont(font(9.0f, true));
             g.drawText("RESET", r, juce::Justification::centred);
         }
-        // which reading AUTO uses: the sung notes (default, best for harmonies) or the whole song like Mixa
-        {
-            const bool notes = useNotes();
-            const std::pair<juce::Rectangle<float>, const char*> seg[] = { { notesRect(), "NOTES" }, { songRect(), "SONG" } };
-            recess(juce::Rectangle<float>(552.0f, 330.0f, 240.0f, 28.0f), 6.0f);
-            for (int i = 0; i < 2; ++i)
-            {
-                const bool sel = (i == 0) == notes && autoOn;
-                const auto r = seg[i].first.reduced(2.0f, 2.0f);
-                if (sel) { g.setGradientFill(juce::ColourGradient(accent.brighter(0.2f), 0, r.getY(), accent.darker(0.35f), 0, r.getBottom(), false)); g.fillRoundedRectangle(r, 4.0f); }
-                g.setColour(sel ? juce::Colour(0xff0f1012) : kMuted); g.setFont(font(9.5f, true));
-                g.drawText(seg[i].second, r, juce::Justification::centred);
-            }
-        }
     }
     else
     {
@@ -986,10 +970,10 @@ void NFVocalSunshineAudioProcessorEditor::drawHarmony(juce::Graphics& g, juce::R
         const int ak = chain.autoKeyFor(notes), alt = chain.autoAltFor(notes);
         juce::String txt;
         if (!autoOn) txt = "KEY BY HAND";
-        else if (ak < 0) txt = juce::String(notes ? "NOTES" : "SONG") + ": listening...  " + juce::String(juce::jmin(chain.autoSecFor(notes), notes ? 4.0f : 6.0f), 1) + " / " + (notes ? "4" : "6") + " s of singing";
+        else if (ak < 0) txt = juce::String("AUTO: listening...  ") + juce::String(juce::jmin(chain.autoSecFor(notes), notes ? 4.0f : 6.0f), 1) + " / " + (notes ? "4" : "6") + " s of singing";
         else
         {
-            txt = juce::String(notes ? "NOTES" : "SONG") + ":  " + kKeys[ak % 12] + (ak >= 12 ? " MINOR" : " MAJOR") + "  -  " + juce::String(juce::roundToInt(chain.autoConfFor(notes) * 100.0f)) + " % sure";
+            txt = juce::String("AUTO:  ") + kKeys[ak % 12] + (ak >= 12 ? " MINOR" : " MAJOR") + "  -  " + juce::String(juce::roundToInt(chain.autoConfFor(notes) * 100.0f)) + " % sure";
             if (alt >= 0) txt += "   (also close: " + juce::String(kKeys[alt % 12]) + (alt >= 12 ? " MINOR)" : " MAJOR)");
         }
         g.setColour(ak >= 0 && autoOn ? accent : kMuted); g.setFont(font(10.0f, true));

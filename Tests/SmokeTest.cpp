@@ -318,9 +318,9 @@ int main()
 
     std::printf("HARMONY AUTO KEY: learns the key from sung notes\n");
     {
-        auto melody = [&](const std::vector<int>& notes, bool autoOn, bool resetAfter, float* conf, float* secs) {
+        auto melody = [&](const std::vector<int>& notes, bool autoOn, bool resetAfter, float* conf, float* secs, bool song = false) {   // song = Mixa's spectral reading, otherwise the sung-notes reading
             nfvs::Chain ch; ch.prepare(kFs);
-            auto p = flat(); p.hAuto = autoOn;
+            auto p = flat(); p.hAuto = autoOn; p.hNotes = !song;
             std::vector<float> l(480), r(480);
             long n = 0; const double per = 0.4, len = 0.35;
             const double total = (double) notes.size() * per;
@@ -340,9 +340,9 @@ int main()
                 ch.process(l.data(), r.data(), 480, p);
             }
             if (resetAfter) { ch.requestKeyReset(); l.assign(480, 0.0f); r.assign(480, 0.0f); ch.process(l.data(), r.data(), 480, p); }
-            if (conf) *conf = ch.autoConfidenceNow();
-            if (secs) *secs = ch.autoSecondsNow();
-            return ch.autoKeyNow();
+            if (conf) *conf = ch.autoConfFor(!song);
+            if (secs) *secs = ch.autoSecFor(!song);
+            return ch.autoKeyFor(!song);
         };
         const std::vector<int> gMajor = { 55, 59, 62, 67, 62, 59, 55, 57, 59, 62, 59, 57, 55, 64, 62, 59, 55, 55, 62, 67, 66, 64, 62, 59, 55 };
         const std::vector<int> aMinor = { 57, 60, 64, 60, 57, 59, 60, 62, 64, 60, 57, 64, 65, 64, 62, 60, 59, 57, 57, 64, 60, 57, 62, 60, 57 };
@@ -351,6 +351,8 @@ int main()
         std::printf("   G major melody -> key %d (7 = G major), confidence %.2f, %.1f s heard\n", kG, conf, secs);
         check(kG == 7, "a G major melody is read as G major");
         check(conf > 0.05f && secs > 5.0f, "with some confidence after several seconds");
+        const int kSong = melody(gMajor, true, false, nullptr, nullptr, true);
+        check(kSong == 7, "the song (Mixa) reading also reads the G major melody as G major");
         const int kA = melody(aMinor, true, false, &conf, &secs);
         std::printf("   A minor melody -> key %d (21 = A minor), confidence %.2f\n", kA, conf);
         check(kA == 21, "an A minor melody is read as A minor");

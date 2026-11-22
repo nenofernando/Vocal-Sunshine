@@ -544,7 +544,7 @@ public:
                 stIn[0] = x[0]; stIn[1] = x[1];
                 // ---------------- HARMONY: lead pitch tracker + up to six pitch-shifted copies (two crossfaded grains on the voice delay line)
                 if (hTrack) trkH.push(midIn);
-                if (p.hAuto) keyPush(midIn);
+                if (p.hAuto && !p.hNotes) keyPush(midIn);   // the spectral (Mixa) reading only runs when it is the one in use
                 if (hm > 0.002f)
                 {
                     float wl = 0.0f, wr = 0.0f;

@@ -65,9 +65,7 @@ private:
     juce::Rectangle<float> autoRect() const { return { 552.0f, 292.0f, 74.0f, 34.0f }; }      // HARMONY: AUTO key button
     juce::Rectangle<float> keyRect() const { return { 632.0f, 292.0f, 100.0f, 34.0f }; }      // current key (click = choose by hand)
     juce::Rectangle<float> resetRect() const { return { 738.0f, 292.0f, 54.0f, 34.0f }; }     // forget what AUTO heard
-    juce::Rectangle<float> notesRect() const { return { 552.0f, 332.0f, 118.0f, 24.0f }; }   // AUTO key from the sung notes (best for harmonies)
-    juce::Rectangle<float> songRect() const { return { 674.0f, 332.0f, 118.0f, 24.0f }; }    // AUTO key read like Mixa (whole song)
-    bool useNotes() const { return pv("hnotes") > 0.5f; }
+    bool useNotes() const { return true; }   // one reading only (the one that fits the sung notes); the song reading is no longer offered
     void setBoolParam(const juce::String& id, bool v);
 
     NFVocalSunshineAudioProcessor& proc;

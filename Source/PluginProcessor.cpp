@@ -148,7 +148,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout NFVocalSunshineAudioProcesso
     v.push_back(std::make_unique<juce::AudioParameterFloat>(ID{ "dfb", 1 }, "Delay Feedback", juce::NormalisableRange<float>(0.0f, 95.0f, 1.0f), 38.0f, juce::AudioParameterFloatAttributes().withLabel("%")));
     v.push_back(std::make_unique<juce::AudioParameterFloat>(ID{ "dlofi", 1 }, "Delay Lo-Fi", juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 0.0f, juce::AudioParameterFloatAttributes().withLabel("%")));
     v.push_back(std::make_unique<juce::AudioParameterFloat>(ID{ "hformant", 1 }, "Harmony Formant", juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f), 0.0f, juce::AudioParameterFloatAttributes().withLabel("st")));
-    v.push_back(std::make_unique<juce::AudioParameterBool>(ID{ "hnotes", 1 }, "Harmony Key From Sung Notes", true));
+    v.push_back(std::make_unique<juce::AudioParameterBool>(ID{ "hnotes", 1 }, "Harmony Key From Sung Notes", true, juce::AudioParameterBoolAttributes().withAutomatable(false)));
     v.push_back(std::make_unique<juce::AudioParameterBool>(ID{ "hauto", 1 }, "Harmony Auto Key", true));
     v.push_back(std::make_unique<juce::AudioParameterBool>(ID{ "hlead", 1 }, "Harmony Lead", true));
     v.push_back(std::make_unique<juce::AudioParameterChoice>(ID{ "hkey", 1 }, "Harmony Key",
