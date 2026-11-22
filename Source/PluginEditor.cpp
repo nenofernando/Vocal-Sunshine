@@ -704,19 +704,34 @@ void NFVocalSunshineAudioProcessorEditor::paint(juce::Graphics& g)
         {
             const auto lr = juce::Rectangle<float>(wp.getX() + 10.0f, wp.getY() + 8.0f + (laneH + 8.0f) * (float) lane, wp.getWidth() - 20.0f, laneH);
             const int tap = lane == 0 ? 0 : stage + 1;
-            const float cw = lr.getWidth() / (float) cols, cy = lr.getCentreY();
-            g.setColour(juce::Colour(0xff1d1d21)); g.drawLine(lr.getX(), cy, lr.getRight(), cy, 1.0f);
+            const float cy = lr.getCentreY();
+            g.setColour(juce::Colour(0xff25262a)); g.drawLine(lr.getX(), cy, lr.getRight(), cy, 1.0f);
+            // level history -> a smooth mirrored envelope (lightly averaged), drawn as one filled shape instead of separate bars
+            std::vector<float> hs((size_t) cols);
             for (int i = 0; i < cols; ++i)
             {
-                const float v = chain.histAt(tap, (pos + i) % cols);
-                const float n = std::pow(juce::jlimit(0.0f, 1.0f, (nfvs::toDb(v) + 46.0f) / 46.0f), 0.8f);   // more of the level range fills the lane
-                const float hh = std::max(1.2f, n * lr.getHeight() * 0.5f);
-                const float age = 0.62f + 0.38f * (float) i / (float) cols;
-                const auto wc = lane == 0 ? juce::Colour(0xfff1f3f8) : (modOn ? accent : juce::Colour(0xff7a7e86));
-                if (lane == 1 && modOn && n > 0.08f) { g.setColour(wc.withAlpha(0.14f * age)); g.fillRoundedRectangle(lr.getX() + (float) i * cw - cw * 0.4f, cy - hh - 2.0f, cw * 1.8f, hh * 2.0f + 4.0f, 2.0f); }   // neon glow
-                g.setColour(wc.withAlpha(age));
-                g.fillRoundedRectangle(lr.getX() + (float) i * cw, cy - hh, std::max(1.2f, cw * 0.78f), hh * 2.0f, 0.8f);
+                float acc = 0.0f;
+                for (int k = -1; k <= 1; ++k) acc += chain.histAt(tap, (pos + juce::jlimit(0, cols - 1, i + k)) % cols);
+                const float n = std::pow(juce::jlimit(0.0f, 1.0f, (nfvs::toDb(acc / 3.0f) + 46.0f) / 46.0f), 0.8f);   // more of the level range fills the lane
+                hs[(size_t) i] = std::max(0.9f, n * lr.getHeight() * 0.5f);
             }
+            const float x0 = lr.getX(), dx = lr.getWidth() / (float) (cols - 1);
+            juce::Path env;
+            env.startNewSubPath(x0, cy - hs[0]);
+            for (int i = 1; i < cols; ++i) env.lineTo(x0 + dx * (float) i, cy - hs[(size_t) i]);
+            for (int i = cols - 1; i >= 0; --i) env.lineTo(x0 + dx * (float) i, cy + hs[(size_t) i]);
+            env.closeSubPath();
+            const auto wc = lane == 0 ? juce::Colour(0xfff1f3f8) : (modOn ? accent : juce::Colour(0xff7a7e86));
+            juce::Path topEdge, botEdge;   // outline = the two long edges only (no vertical line at the ends)
+            topEdge.startNewSubPath(x0, cy - hs[0]); botEdge.startNewSubPath(x0, cy + hs[0]);
+            for (int i = 1; i < cols; ++i) { topEdge.lineTo(x0 + dx * (float) i, cy - hs[(size_t) i]); botEdge.lineTo(x0 + dx * (float) i, cy + hs[(size_t) i]); }
+            if (lane == 1 && modOn) { g.setColour(wc.withAlpha(0.14f)); g.strokePath(topEdge, juce::PathStrokeType(6.0f, juce::PathStrokeType::curved)); g.strokePath(botEdge, juce::PathStrokeType(6.0f, juce::PathStrokeType::curved)); }   // neon glow
+            g.setGradientFill(juce::ColourGradient(wc.withAlpha(0.50f), lr.getX(), 0.0f, wc.withAlpha(0.95f), lr.getRight(), 0.0f, false));   // older audio on the left is a little dimmer
+            g.fillPath(env);
+            juce::Path core = env; core.applyTransform(juce::AffineTransform::translation(0.0f, -cy).scaled(1.0f, 0.55f).translated(0.0f, cy));
+            g.setColour(juce::Colours::white.withAlpha(lane == 0 ? 0.20f : 0.16f)); g.fillPath(core);                                          // lighter core for depth
+            g.setColour(wc.brighter(0.5f).withAlpha(0.95f));      // crisp outline
+            g.strokePath(topEdge, juce::PathStrokeType(1.3f, juce::PathStrokeType::curved)); g.strokePath(botEdge, juce::PathStrokeType(1.3f, juce::PathStrokeType::curved));
         }
         g.setFont(font(9.0f, true));
         g.setColour(juce::Colour(0xffc6cad2)); g.drawText("ORIGINAL", juce::Rectangle<float>(wp.getX() + 14.0f, wp.getY() + 8.0f, 120.0f, 12.0f), juce::Justification::centredLeft);
