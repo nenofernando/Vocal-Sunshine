@@ -970,10 +970,11 @@ void NFVocalSunshineAudioProcessorEditor::drawHarmony(juce::Graphics& g, juce::R
         const int ak = chain.autoKeyFor(notes), alt = chain.autoAltFor(notes);
         juce::String txt;
         if (!autoOn) txt = "KEY BY HAND";
-        else if (ak < 0) txt = juce::String("AUTO: listening...  ") + juce::String(juce::jmin(chain.autoSecFor(notes), notes ? 4.0f : 6.0f), 1) + " / " + (notes ? "4" : "6") + " s of singing";
+        else if (ak < 0) txt = juce::String("AUTO: listening...  harmony starts after about 1.5 s of singing");
         else
         {
             txt = juce::String("AUTO:  ") + kKeys[ak % 12] + (ak >= 12 ? " MINOR" : " MAJOR") + "  -  " + juce::String(juce::roundToInt(chain.autoConfFor(notes) * 100.0f)) + " % sure";
+            if (chain.autoSecFor(notes) < 4.0f) txt += "  (still listening)";
             if (alt >= 0) txt += "   (also close: " + juce::String(kKeys[alt % 12]) + (alt >= 12 ? " MINOR)" : " MAJOR)");
         }
         g.setColour(ak >= 0 && autoOn ? accent : kMuted); g.setFont(font(10.0f, true));

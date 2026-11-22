@@ -204,6 +204,7 @@ public:
         dcX[0] = dcX[1] = dcY[0] = dcY[1] = 0;
         std::fill(vBuf.begin(), vBuf.end(), 0.0f); vw = 0; lfo1 = 0; lfo2 = 1.3f;
         for (int v = 0; v < 6; ++v) { hVoice[v] = HVoice(); hSemi[v] = 0.0f; hPrev[v] = false; }
+        hQuantNote = -100; hReadyG = 1.0f;
         vAbs = 0;
         trkH.reset(); leadOut.store(-1.0f); leadG = 1.0f; resetKeyLearning(); keyFramesSeen = 0;
         colCount = 0; for (auto& v : colPk) v = 0;
@@ -292,15 +293,20 @@ public:
             const int mHar = juce::jlimit(0, 2, p.mode[Harmony]);
             int nAct = 0; bool hAct[6];
             for (int v = 0; v < 6; ++v) { hAct[v] = hm > 0.002f && p.hv[v]; nAct += hAct[v] ? 1 : 0; }
-            const float hGain = hm * 2.6f / std::sqrt((float) std::max(1, nAct));   // at 100 % each voice is about 5 dB louder than the lead
+            const float hGain = hReadyG * hm * 2.6f / std::sqrt((float) std::max(1, nAct));   // at 100 % each voice is about 5 dB louder than the lead
             leadG += (((!p.hLead && nAct > 0) ? 0.0f : 1.0f) - leadG) * 0.35f;       // lead muted only while at least one interval voice is on
             const bool hSpread = ta[Harmony] > 0.5f, hSoft = tb[Harmony] > 0.5f;
             const bool hTrack = hm > 0.002f || p.hAuto;                       // the tracker also runs for AUTO key, even with the harmony amount at 0
             const int autoK = (p.hNotes ? autoKeyPOut : autoKeyOut).load(std::memory_order_relaxed);
-            const bool useAuto = p.hAuto && autoK >= 0;                        // FIXED keeps plain semitones, otherwise the detected major / minor wins
+            const bool useAuto = p.hAuto && autoK >= 0;
+            const bool hReady = !p.hAuto || useAuto || mHar == 2;                // AUTO still listening: no harmony yet rather than harmony in the wrong key
+            hReadyG += ((hReady ? 1.0f : 0.0f) - hReadyG) * 0.3f;                        // FIXED keeps plain semitones, otherwise the detected major / minor wins
             const int effKey = useAuto ? autoK % 12 : p.hkey, effMode = useAuto && mHar != 2 ? (autoK >= 12 ? 1 : 0) : mHar;
             float hL[6], hR[6], hRatio[6];
             if (trkH.voiced && trkH.period > 1.0f) hTcur += (juce::jlimit((float) fs / 900.0f, (float) fs / 60.0f, trkH.period) - hTcur) * 0.3f;   // pitch period used by the grains
+            // the note the intervals are built on only changes when the voice has clearly left it (0.7 semitone), so vibrato or a note sung
+            // between two semitones does not make the harmony flip between two intervals
+            if (trkH.voiced && (hQuantNote < -50 || std::abs(trkH.midi - (float) hQuantNote) > 0.7f)) hQuantNote = (int) std::lround(trkH.midi);
             const float hFr = std::pow(2.0f, juce::jlimit(-12.0f, 12.0f, p.hFormant) / 12.0f);   // formant ratio, 1 = natural
             for (int v = 0; v < 6; ++v)
             {
@@ -308,7 +314,9 @@ public:
                 const float ang = ((hSpread ? kPan[v] : 0.0f) + 1.0f) * juce::MathConstants<float>::pi * 0.25f;
                 hL[v] = std::cos(ang); hR[v] = std::sin(ang);
                 const float target = trkH.voiced ? harmonyShift(v, effMode, effKey) : 0.0f;   // unvoiced sounds pass through unshifted
-                if (hAct[v] && !hPrev[v]) { hSemi[v] = target; hVoice[v] = HVoice(); } else hSemi[v] += (target - hSemi[v]) * 0.3f;
+                if (hAct[v] && !hPrev[v]) { hSemi[v] = target; hVoice[v] = HVoice(); }
+                else if (std::abs(target - hSemi[v]) >= 0.4f) hSemi[v] = target;      // a new interval starts at once: no gliding through the notes in between
+                else hSemi[v] += (target - hSemi[v]) * 0.5f;
                 hPrev[v] = hAct[v];
                 hRatio[v] = std::pow(2.0f, hSemi[v] / 12.0f);
             }
@@ -715,6 +723,7 @@ public:
     float autoConfFor(bool phrase) const { return (phrase ? autoConfPOut : autoConfOut).load(std::memory_order_relaxed); }
     int autoAltFor(bool phrase) const { return (phrase ? autoAltPOut : autoAltOut).load(std::memory_order_relaxed); }
     float leadMidiRaw() const { return trkH.midi; }
+    float harmonySemitonesNow(int v) const { return hSemi[v]; }   // diagnostics: current shift of harmony voice v
     int leadFramesRaw() const { return trkH.frames; }
     bool leadFreshRaw() const { return trkH.fresh; }
     bool leadVoicedNow() const { return trkH.voiced; }
@@ -789,7 +798,7 @@ private:
         if (mode == 2) return (float) kFixed[v];
         static const int kMaj[7] = { 0, 2, 4, 5, 7, 9, 11 }, kMin[7] = { 0, 2, 3, 5, 7, 8, 10 };
         const int* sc = mode == 0 ? kMaj : kMin;
-        const int rel = (int) std::lround(trkH.midi) - key;
+        const int rel = hQuantNote - key;
         const int pc = ((rel % 12) + 12) % 12;
         int best = 0, bestDist = 99;
         for (int d = 0; d < 7; ++d) { const int dist = std::min(std::abs(sc[d] - pc), 12 - std::abs(sc[d] - pc)); if (dist < bestDist) { bestDist = dist; best = d; } }
@@ -824,7 +833,7 @@ private:
         noteSeconds += frameSec;
         if (dev <= 0.4) chromaP[(((int) rounded) % 12 + 12) % 12] += 1.0 - 1.2 * dev;
         autoSecPOut.store((float) noteSeconds, std::memory_order_relaxed);
-        if (++noteFrameCount % 40 == 0) estimateKey(chromaP, autoKeyPOut, autoConfPOut, autoAltPOut, noteSeconds, 4.0);
+        if (++noteFrameCount % 40 == 0) estimateKey(chromaP, autoKeyPOut, autoConfPOut, autoAltPOut, noteSeconds, 1.5);
     }
 
     void prepareKeyLearning()
@@ -953,6 +962,8 @@ private:
     float lfo1 = 0, lfo2 = 1.3f;
     Biquad hLp;
     HVoice hVoice[6];
+    int hQuantNote = -100;
+    float hReadyG = 1.0f;
     float hSemi[6] = {}, hTcur = 320.0f, hann[1026] = {};
     long long vAbs = 0;
     bool hPrev[6] = {};

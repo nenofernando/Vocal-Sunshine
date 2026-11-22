@@ -277,6 +277,106 @@ int main()
         check(std::abs(dbOf(run(off, 1.0, tone(50.0)).rms) - dbOf(run(flat(), 1.0, tone(50.0)).rms)) < 0.05, "EQ amount 0 is transparent");
     }
 
+    std::printf("HARMONY waits for AUTO\n");
+    {
+        auto levelEarly = [&](bool autoOn) {   // output level in the first 1.2 s of a sustained voice
+            nfvs::Chain ch; ch.prepare(kFs); auto p = flat(); p.hAuto = autoOn; p.amt[nfvs::Harmony] = 100; p.mode[nfvs::Harmony] = 0; p.hv[2] = true; p.hLead = false;
+            std::vector<float> l(480), rr(480); double sum = 0.0; long n = 0;
+            for (long blk = 0; blk < (long) (1.2 * kFs / 480); ++blk)
+            {
+                for (int i = 0; i < 480; ++i) l[(size_t) i] = rr[(size_t) i] = (float) (0.3 * std::sin(tw * 220.0 * (double) (blk * 480 + i) / kFs));
+                ch.process(l.data(), rr.data(), 480, p);
+                for (int i = 0; i < 480; ++i) { sum += (double) l[(size_t) i] * l[(size_t) i]; ++n; }
+            }
+            return std::sqrt(sum / (double) n);
+        };
+        check(levelEarly(true) < levelEarly(false) * 0.5, "with AUTO on, no harmony is played before a key is known (not in a key nobody chose)");
+    }
+
+    std::printf("HARMONY TUNING: how close to the exact interval the harmony voice is\n");
+    {
+        // voiced test signal at f0 (pulse train through a 1 kHz resonance); returns the harmony voice's measured frequency error in cents
+        auto centsError = [&](double f0, int hvIndex, double semitones, double vibCents, double vibHz) {
+            nfvs::Chain ch; ch.prepare(kFs);
+            auto p = flat(); p.amt[nfvs::Harmony] = 100; p.mode[nfvs::Harmony] = 2; p.hv[hvIndex] = true; p.hLead = false; p.a[nfvs::Harmony] = false; p.b[nfvs::Harmony] = false;
+            const double r = std::exp(-juce::MathConstants<double>::pi * 150.0 / kFs), a1 = 2.0 * r * std::cos(tw * 1000.0 / kFs), a2 = -r * r;
+            double ph = 0.0, y1 = 0.0, y2 = 0.0, tt = 0.0;
+            std::vector<float> l(480), rr(480); std::vector<double> sig; double fSum = 0.0; long fCnt = 0;
+            for (long blk = 0; blk < 400; ++blk)
+            {
+                for (int i = 0; i < 480; ++i, tt += 1.0 / kFs)
+                {
+                    const double f = f0 * std::pow(2.0, vibCents / 1200.0 * std::sin(tw * vibHz * tt));
+                    ph += f / kFs; double x = 0.0; if (ph >= 1.0) { ph -= 1.0; x = 1.0; }
+                    const double y = x + a1 * y1 + a2 * y2; y2 = y1; y1 = y;
+                    l[(size_t) i] = rr[(size_t) i] = (float) (0.004 * y);
+                    if (blk >= 150) { fSum += f; ++fCnt; }
+                }
+                ch.process(l.data(), rr.data(), 480, p);
+                if (blk >= 150) for (int i = 0; i < 480; ++i) sig.push_back(l[(size_t) i]);
+            }
+            const double expect = (fSum / (double) fCnt) * std::pow(2.0, semitones / 12.0);
+            // strongest of the first three harmonics of the expected pitch, scanned finely (0.05 % steps) around the expectation
+            double bestF = expect, bestP = -1.0;
+            for (double c = -60.0; c <= 60.0; c += 1.0)   // -60..+60 cents in 1 cent steps (about 0.06 %)
+            {
+                const double f = expect * std::pow(2.0, c / 1200.0); double re = 0.0, im = 0.0, pw = 0.0;
+                for (int k = 1; k <= 3; ++k)
+                {
+                    re = im = 0.0; for (size_t n = 0; n < sig.size(); ++n) { re += sig[n] * std::cos(tw * f * k * (double) n / kFs); im += sig[n] * std::sin(tw * f * k * (double) n / kFs); }
+                    pw += re * re + im * im;
+                }
+                if (pw > bestP) { bestP = pw; bestF = f; }
+            }
+            return 1200.0 * std::log2(bestF / expect);
+        };
+        struct Case { double f0; int hv; double st; const char* name; };
+        const Case cases[] = { { 130.0, 3, 7.0, "130 Hz  +5th" }, { 220.0, 3, 7.0, "220 Hz  +5th" }, { 330.0, 3, 7.0, "330 Hz  +5th" }, { 220.0, 2, 4.0, "220 Hz  +3rd" }, { 220.0, 1, -4.0, "220 Hz  -3rd" }, { 220.0, 5, 12.0, "220 Hz  +8ve" }, { 220.0, 0, -12.0, "220 Hz  -8ve" } };
+        double worst = 0.0;
+        for (const auto& c : cases) { const double e = centsError(c.f0, c.hv, c.st, 0.0, 0.0); worst = std::max(worst, std::abs(e)); std::printf("   steady %-14s error %+6.1f cents\n", c.name, e); }
+        // vibrato: compare the harmony's frequency with (lead frequency x interval) over 100 ms frames
+        auto vibratoTracking = [&](double f0, double vibCents, double vibHz, double* meanSigned) {
+            nfvs::Chain ch; ch.prepare(kFs);
+            auto p = flat(); p.amt[nfvs::Harmony] = 100; p.mode[nfvs::Harmony] = 2; p.hv[3] = true; p.hLead = false; p.a[nfvs::Harmony] = false; p.b[nfvs::Harmony] = false;
+            const double r = std::exp(-juce::MathConstants<double>::pi * 150.0 / kFs), a1 = 2.0 * r * std::cos(tw * 1000.0 / kFs), a2 = -r * r;
+            double ph = 0.0, y1 = 0.0, y2 = 0.0, tt = 0.0;
+            std::vector<float> l(480), rr(480); std::vector<double> sig, fl;
+            for (long blk = 0; blk < 400; ++blk)
+            {
+                for (int i = 0; i < 480; ++i, tt += 1.0 / kFs)
+                {
+                    const double f = f0 * std::pow(2.0, vibCents / 1200.0 * std::sin(tw * vibHz * tt));
+                    ph += f / kFs; double x = 0.0; if (ph >= 1.0) { ph -= 1.0; x = 1.0; }
+                    const double y = x + a1 * y1 + a2 * y2; y2 = y1; y1 = y;
+                    l[(size_t) i] = rr[(size_t) i] = (float) (0.004 * y);
+                    if (blk >= 150) fl.push_back(f);
+                }
+                ch.process(l.data(), rr.data(), 480, p);
+                if (blk >= 150) for (int i = 0; i < 480; ++i) sig.push_back(l[(size_t) i]);
+            }
+            const size_t fr = (size_t) (0.1 * kFs); double sumAbs = 0.0, sumSigned = 0.0; int nf = 0;
+            for (size_t s0 = 0; s0 + fr <= sig.size(); s0 += fr)
+            {
+                double fm = 0.0; for (size_t n = s0; n < s0 + fr; ++n) fm += fl[n]; fm = fm / (double) fr * std::pow(2.0, 7.0 / 12.0);
+                double bestF = fm, bestP = -1.0;
+                for (double c = -100.0; c <= 100.0; c += 2.0)
+                {
+                    const double f = fm * std::pow(2.0, c / 1200.0); double pw = 0.0;
+                    for (int k = 1; k <= 2; ++k) { double re = 0.0, im = 0.0; for (size_t n = s0; n < s0 + fr; ++n) { re += sig[n] * std::cos(tw * f * k * (double) n / kFs); im += sig[n] * std::sin(tw * f * k * (double) n / kFs); } pw += re * re + im * im; }
+                    if (pw > bestP) { bestP = pw; bestF = f; }
+                }
+                const double e = 1200.0 * std::log2(bestF / fm); sumAbs += std::abs(e); sumSigned += e; ++nf;
+            }
+            if (meanSigned) *meanSigned = sumSigned / nf;
+            return sumAbs / nf;
+        };
+        double signedMean = 0.0;
+        const double ev = vibratoTracking(220.0, 40.0, 5.5, &signedMean);
+        std::printf("   vibrato +-40 cents at 5.5 Hz, 220 Hz +5th, 100 ms frames: mean |error| %.1f cents (signed mean %+.1f)\n", ev, signedMean);
+        check(worst < 8.0, "steady harmony voices are within 8 cents of the exact interval");
+        check(ev < 12.0, "with vibrato the harmony follows the lead within 12 cents (100 ms frames)");
+    }
+
     std::printf("HARMONY FORMANT: the vocal-tract colour stays put when only the pitch moves\n");
     {
         // a voice-like source: 150 Hz pulse train through a resonance at 1 kHz

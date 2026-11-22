@@ -13,9 +13,10 @@ int main(int argc, char** argv)
     const double sr = rd->sampleRate;
     const juce::int64 total = argc > 2 ? std::min<juce::int64>(rd->lengthInSamples, (juce::int64) (std::atof(argv[2]) * sr)) : rd->lengthInSamples;
     nfvs::Chain ch; ch.prepare(sr);
-    nfvs::Params p; p.hAuto = true;
-    for (int s = 0; s < nfvs::kStages; ++s) { p.amt[s] = 0.0f; p.mode[s] = 1; p.on[s] = true; }
+    nfvs::Params p; p.hAuto = true; p.amt[nfvs::Harmony] = 100.0f; p.mode[nfvs::Harmony] = 0; p.hv[2] = true; p.hLead = true;   // +3rd (major scale when AUTO says major, minor otherwise)
+    for (int s = 0; s < nfvs::kStages; ++s) { if (s != nfvs::Harmony) p.amt[s] = 0.0f; p.mode[s] = s == nfvs::Harmony ? 0 : 1; p.on[s] = true; }
     juce::AudioBuffer<float> buf(1, 480);
+    long shVoiced = 0, shBetween = 0, shChanges = 0; float prevSh = -99.0f;
     long frames = 0, inSong = 0, inPhrase = 0, inFinal = 0, inOld = 0, inOldFinal = 0;
     // the previous learner (pitch-tracker histogram, half-life about a minute), re-created here only to compare
     double oldChroma[12] = {}; int oldKey = -1, oldSeen = 0, oldCount = 0; double oldSecs = 0;
@@ -37,6 +38,10 @@ int main(int argc, char** argv)
         rd->read(&buf, 0, n, pos, true, false);
         for (int i = 0; i < 480; ++i) l[(size_t) i] = r[(size_t) i] = i < n ? buf.getSample(0, i) : 0.0f;
         ch.process(l.data(), r.data(), 480, p);
+        {   // how stable is the interval of the +3rd voice?
+            const float sh = ch.harmonySemitonesNow(2);
+            if (ch.leadVoicedNow()) { ++shVoiced; if (std::abs(sh - std::round(sh)) > 0.2f) ++shBetween; if (prevSh > -90.0f && std::abs(std::round(sh) - std::round(prevSh)) >= 1.0f) ++shChanges; prevSh = sh; } else prevSh = -99.0f;
+        }
         if (ch.leadFramesRaw() != oldSeen)
         {
             oldSeen = ch.leadFramesRaw();
@@ -57,6 +62,7 @@ int main(int argc, char** argv)
         const int pc = (((int) std::lround(e.first)) % 12 + 12) % 12;
         ++frames; inSong += inScale(e.second[0], pc); inPhrase += inScale(e.second[1], pc); inFinal += inScale(finalKey, pc); inOld += inScale(e.second[2], pc); inOldFinal += inScale(oldKey, pc);
     }
+    std::printf("+3rd voice: %.1f interval changes per second of singing, %.1f %% of the time between two semitones (gliding)\n", shVoiced ? (double) shChanges / ((double) shVoiced * 480.0 / sr) : 0.0, shVoiced ? 100.0 * (double) shBetween / (double) shVoiced : 0.0);
     auto pc100 = [&](long v) { return frames ? 100.0 * (double) v / (double) frames : 0.0; };
     std::printf("notes in the scale (%ld frames): OLD learner %.1f | NEW song %.1f | NEW notes %.1f | (final song key fixed %.1f)\n", frames, pc100(inOld), pc100(inSong), pc100(inPhrase), pc100(inFinal));
     double h[12]; ch.copyKeyHistogram(h);

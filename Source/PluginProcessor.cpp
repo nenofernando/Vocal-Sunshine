@@ -54,7 +54,7 @@ void NFVocalSunshineAudioProcessor::processBlock(juce::AudioBuffer<float>& buffe
         prm.on[s] = onP[s]->load() > 0.5f; prm.a[s] = aP[s]->load() > 0.5f; prm.b[s] = bP[s]->load() > 0.5f;
     }
     prm.outputDb = outP->load(); prm.mix = mixP->load(); for (int v = 0; v < 6; ++v) prm.hv[v] = hvP[v]->load() > 0.5f;
-    prm.hkey = juce::roundToInt(hkeyP->load()); prm.hLead = hleadP->load() > 0.5f; prm.hAuto = hautoP->load() > 0.5f; prm.hNotes = hnotesP->load() > 0.5f; prm.hFormant = hformP->load();
+    prm.hkey = juce::roundToInt(hkeyP->load()); prm.hLead = hleadP->load() > 0.5f; prm.hAuto = hautoP->load() > 0.5f; prm.hNotes = true;   // one reading only (a saved state could still carry the old SONG choice) prm.hFormant = hformP->load();
     for (int s = 0; s < nfvs::Finish; ++s) { prm.stLc[s] = stP[s][0]->load(); prm.stHc[s] = stP[s][1]->load(); prm.stOut[s] = stP[s][2]->load(); prm.stMix[s] = stP[s][3]->load(); }
     prm.dLofi = lofiP->load(); prm.dFeedback = fbP->load(); prm.dTime = juce::roundToInt(dtimeP->load()); prm.deFreq = deP[0]->load(); prm.deMax = deP[1]->load();
     prm.vSpread = vspreadP->load();
